@@ -1,5 +1,7 @@
 # LLMSimulator
 
+The single-GPU off-chip expert experiments and reproducible midsem results are documented in [midsem/README.md](midsem/README.md).
+
 ## Overview
 LLMSimulator simulator is a c++ based cycle-accurate simulator, which based on graph execution of Large Language Models. This simulator supports state-of-the-art LLMs such as DeepSeek, Llama, Mixtral and etc. This simulator supports not only Multi-Head Attention (MHA) mechanism, but also Grouped-Query Attention(GQA), Multi-Query Attention(MQA) and Multi-head Latent Attention (MLA). LLMSimulator equipped with simulation of Mixture of Expert (MoE). It integrates with modified [Ramulator 2.0](https://github.com/CMU-SAFARI/ramulator2) for detailed memory modeling. LLMSimulator can evaluate various type of GPU generation such as H100, B100 and B200, and also including bank-level PIM, bank-group-level PIM, and Logic-PIM.
 

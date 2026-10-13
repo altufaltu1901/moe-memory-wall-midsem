@@ -1,0 +1,12 @@
+{
+  "dataset": "mistrjirka/Predicting-Experts-for-MOE-Suite",
+  "dataset_url": "https://huggingface.co/datasets/mistrjirka/Predicting-Experts-for-MOE-Suite",
+  "api": "https://datasets-server.huggingface.co/rows",
+  "config": "token_cube",
+  "split": "train",
+  "offset": 0,
+  "length": 1000,
+  "revision": "110677e41b102126aa98f820cbf7b2190c35a3d6",
+  "fetched_at_utc": "2026-10-13T13:57:41.234855+00:00",
+  "scope": "Router decisions from a GLM-5.2 variant on synthetic coding tasks; not DeepSeekV3 simulator routing"
+}

@@ -91,6 +91,23 @@ int main(int argc, char *argv[]) {
   system_config.num_node = num_node;
   system_config.num_device = num_device;
 
+  auto offchip = config["system"]["offchip_experts"];
+  if (offchip && offchip["enabled"].as<bool>()) {
+    assertTrue(num_node == 1 && num_device == 1,
+               "Off-chip expert model requires a single GPU");
+    system_config.offchip_experts = true;
+    system_config.offchip_bandwidth_bytes_per_s =
+        offchip["bandwidth_GBps"].as<double>() * 1e9;
+    system_config.offchip_latency_ns = offchip["latency_ns"].as<double>();
+    system_config.expert_cache_capacity_bytes = static_cast<long long>(
+        offchip["expert_cache_GiB"].as<double>() * 1024.0 * 1024 * 1024);
+    assertTrue(system_config.offchip_bandwidth_bytes_per_s > 0 &&
+                   system_config.offchip_latency_ns >= 0 &&
+                   system_config.expert_cache_capacity_bytes > 0 &&
+                   system_config.expert_cache_capacity_bytes <= system_config.memory_capacity,
+               "Invalid off-chip expert bandwidth, latency, or HBM cache budget");
+  }
+
 
   system_config.high_processor_type = ProcessorType::GPU;
   system_config.low_processor_type = ProcessorType::LOGIC;

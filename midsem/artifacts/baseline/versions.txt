@@ -1,0 +1,7 @@
+LLMSimulator commit: 419252761fbdb95b789778a02256d458a5537ec7
+Ramulator commit: b5262869b24790e5ec62d9d9974fca9bbb4f54e0
+Patch SHA256: 6545253999be7a93327951dc3cf0101d6be1389991f16a7edc97e010689c5a14  patch/ramulator2_pim.patch
+OS: Ubuntu 26.04.1 LTS
+g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake version 4.2.3
+git version 2.53.0

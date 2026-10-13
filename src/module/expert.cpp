@@ -8,6 +8,46 @@
 
 namespace llm_system {
 
+ExpertLoad::ExpertLoad(const std::string& prefix, int expert_offset,
+                       int expert_count, long long expert_bytes,
+                       Device::Ptr device)
+    : Module(prefix, "expert_load", device, {device->device_total_rank}, true),
+      layer_key_(prefix),
+      expert_offset_(expert_offset),
+      expert_count_(expert_count),
+      expert_bytes_(expert_bytes) {}
+
+Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
+                                BatchedSequence::Ptr metadata) {
+  if (!device->perform_execution) return input;
+
+  int hits = 0, misses = 0, evictions = 0;
+  long long bytes = 0;
+  time_ns duration = 0;
+  for (int expert = expert_offset_; expert < expert_offset_ + expert_count_;
+       ++expert) {
+    if (metadata->num_token_in_expert.at(expert) == 0) continue;
+    auto fetched = device->fetchExpert(layer_key_ + ":" + std::to_string(expert),
+                                       expert_bytes_);
+    hits += fetched.hit;
+    misses += !fetched.hit;
+    evictions += fetched.evictions;
+    bytes += fetched.bytes_transferred;
+    duration += fetched.load_duration_ns;
+  }
+
+  ExecStatus status;
+  status.processor_type = ProcessorType::GPU;
+  status.total_duration = duration;
+  status.memory_duration = duration;
+  status.memory_size = bytes;
+  device->setExecStatus(status);
+  std::cout << "OFFCHIP_LOAD," << step_++ << ',' << layer_key_ << ','
+            << hits << ',' << misses << ',' << evictions << ','
+            << bytes << ',' << duration << std::endl;
+  return input;
+}
+
 // ExpertFFN
 
 ExpertFFN::ExpertFFN(std::string& prefix, std::string& name,
@@ -85,6 +125,16 @@ ExpertFFN::ExpertFFN(std::string& prefix, std::string& name,
     }
   }
 
+  if (device->config.offchip_experts) {
+    long long expert_bytes =
+        get_module("expert_FFN_" + std::to_string(expert_offset))
+            ->get_size().at(1);
+    device->offchip_total_expert_weight_bytes +=
+        expert_bytes * num_expert_per_device;
+    add_module(ExpertLoad::Create(module_map_name, expert_offset,
+                                  num_expert_per_device, expert_bytes, device));
+  }
+
   num_shared_expert = model_config.num_shared_expert;
   for(int shared_expert_idx = 0 ; shared_expert_idx < num_shared_expert; shared_expert_idx ++){
     if (model_config.ffn_way == 2) {
@@ -155,6 +205,11 @@ Tensor::Ptr ExpertFFN::forward(const Tensor::Ptr input,
   TensorVec input_vec;
   input_vec.push_back(scatter_out);
   TensorVec route_out = (*route)(input_vec, sequences_metadata);
+
+  if (device->config.offchip_experts) {
+    Module::Ptr expert_load = get_module("expert_load");
+    (*expert_load)(route_out.at(expert_offset), sequences_metadata);
+  }
 
   // ExpertFFN //
 

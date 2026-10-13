@@ -1,0 +1,495 @@
+diff --git a/config_offchip.yaml b/config_offchip.yaml
+new file mode 100644
+index 0000000..9103b07
+--- /dev/null
++++ b/config_offchip.yaml
+@@ -0,0 +1,53 @@
++model:
++  model_name: deepseekV3
++
++system:
++  gpu_gen: H100 # 80 GiB HBM reference; A100 path lacks a DRAM config in this snapshot
++  nvlink_gen: 4
++  infiniband_gen: 400
++  num_node: 1
++  num_device: 1
++  processor_type: GPU # disables Logic-PIM
++  distribution:
++    expert_tensor_degree: 1
++    none_expert_tensor_degree: 1
++  offchip_experts:
++    enabled: on
++    bandwidth_GBps: 32 # modeled sustained off-chip DRAM-to-HBM transfer rate
++    latency_ns: 2000
++    expert_cache_GiB: 32 # HBM budget for routed experts; other data remains local
++  optimization:
++    parallel_execution: off
++    hetero_subbatch: off
++    disagg_system: off
++    use_low_unit_moe_only: off
++    use_ramulator: off
++    compressed_kv: on
++    use_absorb: on
++    use_flash_mla: on
++    use_flash_attention: on
++    reuse_kv_cache: on
++    kv_cache_reuse_rate: 0.0
++    prefill_mode: off
++    decode_mode: on
++
++serving:
++  max_batch_size: 4
++  max_process_token: 0
++
++simulation:
++  data: synthesis
++  input_len: 1024
++  output_len: 10
++  precision_byte: 1
++  skewness: 0.0
++  iter: 5
++  injection_rate: 0
++  exit_out_of_memory: on
++  mem_cap_limit: off
++
++log:
++  print_log: off
++  export_gantt: off
++  output_directory: ../data/offchip
++  gantt_directory: ./gantt
+diff --git a/eval/test.cpp b/eval/test.cpp
+index c78b6e6..16a2896 100644
+--- a/eval/test.cpp
++++ b/eval/test.cpp
+@@ -91,6 +91,23 @@ int main(int argc, char *argv[]) {
+   system_config.num_node = num_node;
+   system_config.num_device = num_device;
+ 
++  auto offchip = config["system"]["offchip_experts"];
++  if (offchip && offchip["enabled"].as<bool>()) {
++    assertTrue(num_node == 1 && num_device == 1,
++               "Off-chip expert model requires a single GPU");
++    system_config.offchip_experts = true;
++    system_config.offchip_bandwidth_bytes_per_s =
++        offchip["bandwidth_GBps"].as<double>() * 1e9;
++    system_config.offchip_latency_ns = offchip["latency_ns"].as<double>();
++    system_config.expert_cache_capacity_bytes = static_cast<long long>(
++        offchip["expert_cache_GiB"].as<double>() * 1024.0 * 1024 * 1024);
++    assertTrue(system_config.offchip_bandwidth_bytes_per_s > 0 &&
++                   system_config.offchip_latency_ns >= 0 &&
++                   system_config.expert_cache_capacity_bytes > 0 &&
++                   system_config.expert_cache_capacity_bytes <= system_config.memory_capacity,
++               "Invalid off-chip expert bandwidth, latency, or HBM cache budget");
++  }
++
+ 
+   system_config.high_processor_type = ProcessorType::GPU;
+   system_config.low_processor_type = ProcessorType::LOGIC;
+diff --git a/src/hardware/cluster.cpp b/src/hardware/cluster.cpp
+index 333f67b..289de5a 100644
+--- a/src/hardware/cluster.cpp
++++ b/src/hardware/cluster.cpp
+@@ -217,6 +217,21 @@ bool Cluster::checkMemorySize() {
+     }
+   }
+ 
++  const long long resident_weight_bytes =
++      size_vector.at(1) - device->offchip_total_expert_weight_bytes;
++  const long long expert_cache_bytes = device->config.offchip_experts
++      ? device->config.expert_cache_capacity_bytes : 0;
++  assertTrue(resident_weight_bytes >= 0,
++             "Off-chip routed expert weights exceed logical model weights");
++  if (device->config.offchip_experts) {
++    std::cout << "Off-chip routed weights: "
++              << device->offchip_total_expert_weight_bytes / 1024.0 / 1024 / 1024
++              << " GiB, resident weight: "
++              << resident_weight_bytes / 1024.0 / 1024 / 1024
++              << " GiB, expert HBM cache budget: "
++              << expert_cache_bytes / 1024.0 / 1024 / 1024 << " GiB"
++              << std::endl;
++  }
+   double size = 0;
+   if(device->model_config.q_lora_rank == 0){
+     std::cout << "ACT: "
+@@ -226,7 +241,7 @@ bool Cluster::checkMemorySize() {
+             << "GB, Cache: " << size_vector.at(2) / 1024.0 / 1024 / 1024 << "GB"
+             << std::endl;
+     size = size_vector.at(0) / device->model_config.num_layers +
+-            size_vector.at(1) + size_vector.at(2);
++            resident_weight_bytes + size_vector.at(2) + expert_cache_bytes;
+   }
+   else{ // for MLA
+     std::cout << "ACT: "
+@@ -234,7 +249,8 @@ bool Cluster::checkMemorySize() {
+             << "GB, Weight: " << size_vector.at(1) / 1024.0 / 1024 / 1024
+             << "GB, Cache: " << size_vector.at(2) / 1024.0 / 1024 / 1024 << "GB"
+             << std::endl;
+-    size =activation_size + size_vector.at(1) + size_vector.at(2);               
++    size = activation_size + resident_weight_bytes + size_vector.at(2) +
++           expert_cache_bytes;
+   }            
+                  
+   std::cout << "Total: " << size / 1024.0 / 1024 / 1024 << "GB" << std::endl;
+@@ -263,11 +279,12 @@ bool Cluster::checkMemorySize() {
+         avail_capacity =
+             config.memory_capacity -
+             (size_vector.at(0) / device->model_config.num_layers) -
+-            size_vector.at(1);
++            resident_weight_bytes - expert_cache_bytes;
+       }
+       else{
+         avail_capacity =
+-            config.memory_capacity - activation_size - size_vector.at(1);
++            config.memory_capacity - activation_size - resident_weight_bytes -
++            expert_cache_bytes;
+       }
+ 
+       if (avail_capacity < 0) {
+@@ -521,6 +538,8 @@ std::vector<Stat> Cluster::runIterationMixed(int iter, std::ofstream &csv) {
+     scheduler->fillRunningQueue();
+   }
+ 
++  // The loop flushes the previous iteration at its start; keep the final row.
++  exportToCSV(csv, stat_list);
+   return stat_list;
+ }
+ 
+@@ -1108,4 +1127,4 @@ void Cluster::CreateNode(SystemConfig config) {
+   }
+ }
+ 
+-};  // namespace llm_system
+\ No newline at end of file
++};  // namespace llm_system
+diff --git a/src/hardware/device.cpp b/src/hardware/device.cpp
+index d267e51..added7d 100644
+--- a/src/hardware/device.cpp
++++ b/src/hardware/device.cpp
+@@ -130,6 +130,37 @@ void Device::setExecStatus(ExecStatus& exec_status_) {
+   exec_status = exec_status_;
+ }
+ 
++Device::ExpertFetch Device::fetchExpert(const std::string& key,
++                                        long long bytes) {
++  ExpertFetch result;
++  if (!config.offchip_experts || bytes <= 0) return result;
++
++  auto found = expert_index_.find(key);
++  if (found != expert_index_.end()) {
++    result.hit = true;
++    expert_lru_.splice(expert_lru_.begin(), expert_lru_, found->second);
++    return result;
++  }
++
++  result.bytes_transferred = bytes;
++  result.load_duration_ns = config.offchip_latency_ns +
++      static_cast<double>(bytes) * 1e9 / config.offchip_bandwidth_bytes_per_s;
++
++  // A weight larger than the budget is loaded for this use but not retained.
++  if (bytes > config.expert_cache_capacity_bytes) return result;
++  while (expert_cache_used_bytes_ + bytes > config.expert_cache_capacity_bytes) {
++    auto oldest = std::prev(expert_lru_.end());
++    expert_cache_used_bytes_ -= oldest->second;
++    expert_index_.erase(oldest->first);
++    expert_lru_.erase(oldest);
++    ++result.evictions;
++  }
++  expert_lru_.emplace_front(key, bytes);
++  expert_index_[key] = expert_lru_.begin();
++  expert_cache_used_bytes_ += bytes;
++  return result;
++}
++
+ ExecStatus Device::getHighExecStatus() {
+   ExecStatus return_status = high_exec_status;
+   high_exec_status = ExecStatus();
+@@ -222,4 +253,4 @@ void Device::initializeDRAM(int ProcessorType, DramEnergy dramEnergy) {
+   top_module_graph->initializeDRAM(ProcessorType, dramEnergy);
+ }
+ 
+-};  // namespace llm_system
+\ No newline at end of file
++};  // namespace llm_system
+diff --git a/src/hardware/device.h b/src/hardware/device.h
+index 14dd2a1..4e291fa 100644
+--- a/src/hardware/device.h
++++ b/src/hardware/device.h
+@@ -1,6 +1,9 @@
+ #pragma once
+ #include <map>
+ #include <memory>
++#include <list>
++#include <string>
++#include <unordered_map>
+ 
+ #include "common/type.h"
+ #include "dram/dram_type.h"
+@@ -19,6 +22,12 @@ class Device : public std::enable_shared_from_this<Device> {
+   friend class Cluster;
+ 
+  public:
++  struct ExpertFetch {
++    bool hit = false;
++    int evictions = 0;
++    long long bytes_transferred = 0;
++    time_ns load_duration_ns = 0;
++  };
+   using Ptr = std::shared_ptr<Device>;
+ 
+   [[nodiscard]] static Ptr Create(SystemConfig config, int device_total_rank,
+@@ -91,6 +100,7 @@ class Device : public std::enable_shared_from_this<Device> {
+ 
+ 
+   void setExecStatus(ExecStatus& exec_status_);
++  ExpertFetch fetchExpert(const std::string& key, long long bytes);
+ 
+   ExecStatus getExecStatus();
+   ExecStatus getHighExecStatus();
+@@ -103,12 +113,17 @@ class Device : public std::enable_shared_from_this<Device> {
+ 
+   StatusBoard status;
+   ModelConfig model_config;
++  long long offchip_total_expert_weight_bytes = 0;
+ 
+   MMapController_Ptr mmap_controller;
+ 
+   bool perform_execution;
+ 
+  private:
++  std::list<std::pair<std::string, long long>> expert_lru_;
++  std::unordered_map<std::string,
++      std::list<std::pair<std::string, long long>>::iterator> expert_index_;
++  long long expert_cache_used_bytes_ = 0;
+   ExecStatus high_exec_status;
+   ExecStatus low_exec_status;
+   ExecStatus exec_status;
+@@ -123,4 +138,4 @@ class Device : public std::enable_shared_from_this<Device> {
+   void execution_ideal(LayerType layer_type,
+                        std::vector<Tensor_Ptr> tensor_list);
+ };
+-}  // namespace llm_system
+\ No newline at end of file
++}  // namespace llm_system
+diff --git a/src/hardware/hardware_config.h b/src/hardware/hardware_config.h
+index 2b1885b..f5af106 100644
+--- a/src/hardware/hardware_config.h
++++ b/src/hardware/hardware_config.h
+@@ -113,6 +113,13 @@ class SystemConfig {
+ 
+   hw_metric memory_capacity;
+ 
++  // Optional single-GPU MoE offloading model. Expert weights start in off-chip
++  // DRAM; only the explicitly budgeted expert cache resides in GPU HBM.
++  bool offchip_experts = false;
++  hw_metric offchip_bandwidth_bytes_per_s = 0;
++  time_ns offchip_latency_ns = 0;
++  long long expert_cache_capacity_bytes = 0;
++
+   // Logic specification
+   int logic_x;
+   hw_metric logic_memory_bandwidth = memory_bandwidth * logic_x;
+@@ -312,4 +319,4 @@ static SystemConfig B200 = SystemConfig(
+                  8                                  // int num_logic_cube
+                  );
+ 
+-}  // namespace llm_system
+\ No newline at end of file
++}  // namespace llm_system
+diff --git a/src/module/expert.cpp b/src/module/expert.cpp
+index 7428006..55814e4 100644
+--- a/src/module/expert.cpp
++++ b/src/module/expert.cpp
+@@ -8,6 +8,46 @@
+ 
+ namespace llm_system {
+ 
++ExpertLoad::ExpertLoad(const std::string& prefix, int expert_offset,
++                       int expert_count, long long expert_bytes,
++                       Device::Ptr device)
++    : Module(prefix, "expert_load", device, {device->device_total_rank}, true),
++      layer_key_(prefix),
++      expert_offset_(expert_offset),
++      expert_count_(expert_count),
++      expert_bytes_(expert_bytes) {}
++
++Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
++                                BatchedSequence::Ptr metadata) {
++  if (!device->perform_execution) return input;
++
++  int hits = 0, misses = 0, evictions = 0;
++  long long bytes = 0;
++  time_ns duration = 0;
++  for (int expert = expert_offset_; expert < expert_offset_ + expert_count_;
++       ++expert) {
++    if (metadata->num_token_in_expert.at(expert) == 0) continue;
++    auto fetched = device->fetchExpert(layer_key_ + ":" + std::to_string(expert),
++                                       expert_bytes_);
++    hits += fetched.hit;
++    misses += !fetched.hit;
++    evictions += fetched.evictions;
++    bytes += fetched.bytes_transferred;
++    duration += fetched.load_duration_ns;
++  }
++
++  ExecStatus status;
++  status.processor_type = ProcessorType::GPU;
++  status.total_duration = duration;
++  status.memory_duration = duration;
++  status.memory_size = bytes;
++  device->setExecStatus(status);
++  std::cout << "OFFCHIP_LOAD," << step_++ << ',' << layer_key_ << ','
++            << hits << ',' << misses << ',' << evictions << ','
++            << bytes << ',' << duration << std::endl;
++  return input;
++}
++
+ // ExpertFFN
+ 
+ ExpertFFN::ExpertFFN(std::string& prefix, std::string& name,
+@@ -85,6 +125,16 @@ ExpertFFN::ExpertFFN(std::string& prefix, std::string& name,
+     }
+   }
+ 
++  if (device->config.offchip_experts) {
++    long long expert_bytes =
++        get_module("expert_FFN_" + std::to_string(expert_offset))
++            ->get_size().at(1);
++    device->offchip_total_expert_weight_bytes +=
++        expert_bytes * num_expert_per_device;
++    add_module(ExpertLoad::Create(module_map_name, expert_offset,
++                                  num_expert_per_device, expert_bytes, device));
++  }
++
+   num_shared_expert = model_config.num_shared_expert;
+   for(int shared_expert_idx = 0 ; shared_expert_idx < num_shared_expert; shared_expert_idx ++){
+     if (model_config.ffn_way == 2) {
+@@ -156,6 +206,11 @@ Tensor::Ptr ExpertFFN::forward(const Tensor::Ptr input,
+   input_vec.push_back(scatter_out);
+   TensorVec route_out = (*route)(input_vec, sequences_metadata);
+ 
++  if (device->config.offchip_experts) {
++    Module::Ptr expert_load = get_module("expert_load");
++    (*expert_load)(route_out.at(expert_offset), sequences_metadata);
++  }
++
+   // ExpertFFN //
+ 
+   Tensor::Ptr result;
+@@ -206,4 +261,4 @@ Tensor::Ptr ExpertFFN::forward(const Tensor::Ptr input,
+   return result;
+ }
+ 
+-}  // namespace llm_system
+\ No newline at end of file
++}  // namespace llm_system
+diff --git a/src/module/expert.h b/src/module/expert.h
+index e98f67e..0555b2b 100644
+--- a/src/module/expert.h
++++ b/src/module/expert.h
+@@ -10,6 +10,29 @@
+ 
+ namespace llm_system {
+ 
++class ExpertLoad : public Module {
++ public:
++  using Ptr = std::shared_ptr<ExpertLoad>;
++  [[nodiscard]] static Ptr Create(const std::string& prefix,
++                                   int expert_offset, int expert_count,
++                                   long long expert_bytes, Device::Ptr device) {
++    Ptr ptr(new ExpertLoad(prefix, expert_offset, expert_count,
++                           expert_bytes, device));
++    return ptr;
++  }
++
++ private:
++  ExpertLoad(const std::string& prefix, int expert_offset, int expert_count,
++             long long expert_bytes, Device::Ptr device);
++  Tensor::Ptr forward(const Tensor::Ptr input,
++                      BatchedSequence::Ptr metadata) override;
++  std::string layer_key_;
++  int expert_offset_;
++  int expert_count_;
++  long long expert_bytes_;
++  int step_ = 0;
++};
++
+ class ExpertFFN : public Module {
+  public:
+   using Ptr = std::shared_ptr<ExpertFFN>;
+@@ -39,4 +62,4 @@ class ExpertFFN : public Module {
+   std::string expert_file_path;
+ };
+ 
+-}  // namespace llm_system
+\ No newline at end of file
++}  // namespace llm_system
+diff --git a/src/scheduler/sequence.cpp b/src/scheduler/sequence.cpp
+index 5692a99..0758958 100644
+--- a/src/scheduler/sequence.cpp
++++ b/src/scheduler/sequence.cpp
+@@ -1,8 +1,23 @@
+ #include "scheduler/sequence.h"
+ 
++#include <cstdlib>
++
+ #include "scheduler/scheduler.h"
+ 
+ namespace llm_system {
++
++static std::ofstream* routeTrace() {
++  static std::unique_ptr<std::ofstream> trace = [] {
++    const char* path = std::getenv("MOE_TRACE_PATH");
++    if (!path || !*path) return std::unique_ptr<std::ofstream>{};
++    auto file = std::make_unique<std::ofstream>(path);
++    if (*file) {
++      *file << "sequence_id,token_position,layer,expert_id,source\n";
++    }
++    return file;
++  }();
++  return trace && *trace ? trace.get() : nullptr;
++}
+ Sequence::Sequence(int expert_seq_id, int input_len, int output_len)
+     : expert_seq_id(expert_seq_id),
+       input_len(input_len),
+@@ -153,8 +168,14 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
+                                     bool need_new_expert) {
+   num_token_in_expert.clear();
+   int size = num_token_in_expert.size();
+-  int num_layer =
+-      scheduler->model_config.num_layers / scheduler->model_config.expert_freq;
++  const auto& model = scheduler->model_config;
++  int num_layer = model.model_name == "deepseekV3"
++                      ? model.num_layers - model.first_k_dense
++                      : model.num_layers / model.expert_freq;
++  const int actual_layer = model.model_name == "deepseekV3"
++                               ? model.first_k_dense + cur_layer
++                               : cur_layer * model.expert_freq;
++  std::ofstream* trace = routeTrace();
+ 
+   static int expert_id = 0;
+ 
+@@ -185,6 +206,8 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
+           e_id = scheduler->sequences_info[seq_id]
+                      ->expert_list[token_id * num_layer + cur_layer][k];
+           num_token_in_expert[e_id] += 1;
++          if (trace) *trace << seq->id << ',' << token_id << ',' << actual_layer
++                            << ',' << e_id << ",trace\n";
+         }
+       } else {
+         std::set<int> expert_list;
+@@ -196,6 +219,8 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
+         }
+         for (auto idx : expert_list) {
+           num_token_in_expert[idx] += 1;
++          if (trace) *trace << seq->id << ',' << token_id << ',' << actual_layer
++                            << ',' << idx << ",synthetic\n";
+         }
+       }
+     }
+@@ -230,4 +255,4 @@ void BatchedSequence::add_dummy_sequence(int num_seq, int input_len,
+   }
+ }
+ 
+-}  // namespace llm_system
+\ No newline at end of file
++}  // namespace llm_system

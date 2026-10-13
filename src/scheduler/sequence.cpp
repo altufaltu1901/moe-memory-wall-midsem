@@ -1,8 +1,23 @@
 #include "scheduler/sequence.h"
 
+#include <cstdlib>
+
 #include "scheduler/scheduler.h"
 
 namespace llm_system {
+
+static std::ofstream* routeTrace() {
+  static std::unique_ptr<std::ofstream> trace = [] {
+    const char* path = std::getenv("MOE_TRACE_PATH");
+    if (!path || !*path) return std::unique_ptr<std::ofstream>{};
+    auto file = std::make_unique<std::ofstream>(path);
+    if (*file) {
+      *file << "sequence_id,token_position,layer,expert_id,source\n";
+    }
+    return file;
+  }();
+  return trace && *trace ? trace.get() : nullptr;
+}
 Sequence::Sequence(int expert_seq_id, int input_len, int output_len)
     : expert_seq_id(expert_seq_id),
       input_len(input_len),
@@ -153,8 +168,14 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
                                     bool need_new_expert) {
   num_token_in_expert.clear();
   int size = num_token_in_expert.size();
-  int num_layer =
-      scheduler->model_config.num_layers / scheduler->model_config.expert_freq;
+  const auto& model = scheduler->model_config;
+  int num_layer = model.model_name == "deepseekV3"
+                      ? model.num_layers - model.first_k_dense
+                      : model.num_layers / model.expert_freq;
+  const int actual_layer = model.model_name == "deepseekV3"
+                               ? model.first_k_dense + cur_layer
+                               : cur_layer * model.expert_freq;
+  std::ofstream* trace = routeTrace();
 
   static int expert_id = 0;
 
@@ -185,6 +206,8 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
           e_id = scheduler->sequences_info[seq_id]
                      ->expert_list[token_id * num_layer + cur_layer][k];
           num_token_in_expert[e_id] += 1;
+          if (trace) *trace << seq->id << ',' << token_id << ',' << actual_layer
+                            << ',' << e_id << ",trace\n";
         }
       } else {
         std::set<int> expert_list;
@@ -196,6 +219,8 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
         }
         for (auto idx : expert_list) {
           num_token_in_expert[idx] += 1;
+          if (trace) *trace << seq->id << ',' << token_id << ',' << actual_layer
+                            << ',' << idx << ",synthetic\n";
         }
       }
     }

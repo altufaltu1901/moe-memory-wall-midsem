@@ -10,6 +10,29 @@
 
 namespace llm_system {
 
+class ExpertLoad : public Module {
+ public:
+  using Ptr = std::shared_ptr<ExpertLoad>;
+  [[nodiscard]] static Ptr Create(const std::string& prefix,
+                                   int expert_offset, int expert_count,
+                                   long long expert_bytes, Device::Ptr device) {
+    Ptr ptr(new ExpertLoad(prefix, expert_offset, expert_count,
+                           expert_bytes, device));
+    return ptr;
+  }
+
+ private:
+  ExpertLoad(const std::string& prefix, int expert_offset, int expert_count,
+             long long expert_bytes, Device::Ptr device);
+  Tensor::Ptr forward(const Tensor::Ptr input,
+                      BatchedSequence::Ptr metadata) override;
+  std::string layer_key_;
+  int expert_offset_;
+  int expert_count_;
+  long long expert_bytes_;
+  int step_ = 0;
+};
+
 class ExpertFFN : public Module {
  public:
   using Ptr = std::shared_ptr<ExpertFFN>;

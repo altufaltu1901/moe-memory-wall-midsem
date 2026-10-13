@@ -130,6 +130,37 @@ void Device::setExecStatus(ExecStatus& exec_status_) {
   exec_status = exec_status_;
 }
 
+Device::ExpertFetch Device::fetchExpert(const std::string& key,
+                                        long long bytes) {
+  ExpertFetch result;
+  if (!config.offchip_experts || bytes <= 0) return result;
+
+  auto found = expert_index_.find(key);
+  if (found != expert_index_.end()) {
+    result.hit = true;
+    expert_lru_.splice(expert_lru_.begin(), expert_lru_, found->second);
+    return result;
+  }
+
+  result.bytes_transferred = bytes;
+  result.load_duration_ns = config.offchip_latency_ns +
+      static_cast<double>(bytes) * 1e9 / config.offchip_bandwidth_bytes_per_s;
+
+  // A weight larger than the budget is loaded for this use but not retained.
+  if (bytes > config.expert_cache_capacity_bytes) return result;
+  while (expert_cache_used_bytes_ + bytes > config.expert_cache_capacity_bytes) {
+    auto oldest = std::prev(expert_lru_.end());
+    expert_cache_used_bytes_ -= oldest->second;
+    expert_index_.erase(oldest->first);
+    expert_lru_.erase(oldest);
+    ++result.evictions;
+  }
+  expert_lru_.emplace_front(key, bytes);
+  expert_index_[key] = expert_lru_.begin();
+  expert_cache_used_bytes_ += bytes;
+  return result;
+}
+
 ExecStatus Device::getHighExecStatus() {
   ExecStatus return_status = high_exec_status;
   high_exec_status = ExecStatus();

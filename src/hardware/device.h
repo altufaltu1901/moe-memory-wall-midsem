@@ -1,6 +1,9 @@
 #pragma once
 #include <map>
 #include <memory>
+#include <list>
+#include <string>
+#include <unordered_map>
 
 #include "common/type.h"
 #include "dram/dram_type.h"
@@ -19,6 +22,12 @@ class Device : public std::enable_shared_from_this<Device> {
   friend class Cluster;
 
  public:
+  struct ExpertFetch {
+    bool hit = false;
+    int evictions = 0;
+    long long bytes_transferred = 0;
+    time_ns load_duration_ns = 0;
+  };
   using Ptr = std::shared_ptr<Device>;
 
   [[nodiscard]] static Ptr Create(SystemConfig config, int device_total_rank,
@@ -91,6 +100,7 @@ class Device : public std::enable_shared_from_this<Device> {
 
 
   void setExecStatus(ExecStatus& exec_status_);
+  ExpertFetch fetchExpert(const std::string& key, long long bytes);
 
   ExecStatus getExecStatus();
   ExecStatus getHighExecStatus();
@@ -103,12 +113,17 @@ class Device : public std::enable_shared_from_this<Device> {
 
   StatusBoard status;
   ModelConfig model_config;
+  long long offchip_total_expert_weight_bytes = 0;
 
   MMapController_Ptr mmap_controller;
 
   bool perform_execution;
 
  private:
+  std::list<std::pair<std::string, long long>> expert_lru_;
+  std::unordered_map<std::string,
+      std::list<std::pair<std::string, long long>>::iterator> expert_index_;
+  long long expert_cache_used_bytes_ = 0;
   ExecStatus high_exec_status;
   ExecStatus low_exec_status;
   ExecStatus exec_status;

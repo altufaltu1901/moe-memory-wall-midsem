@@ -217,6 +217,21 @@ bool Cluster::checkMemorySize() {
     }
   }
 
+  const long long resident_weight_bytes =
+      size_vector.at(1) - device->offchip_total_expert_weight_bytes;
+  const long long expert_cache_bytes = device->config.offchip_experts
+      ? device->config.expert_cache_capacity_bytes : 0;
+  assertTrue(resident_weight_bytes >= 0,
+             "Off-chip routed expert weights exceed logical model weights");
+  if (device->config.offchip_experts) {
+    std::cout << "Off-chip routed weights: "
+              << device->offchip_total_expert_weight_bytes / 1024.0 / 1024 / 1024
+              << " GiB, resident weight: "
+              << resident_weight_bytes / 1024.0 / 1024 / 1024
+              << " GiB, expert HBM cache budget: "
+              << expert_cache_bytes / 1024.0 / 1024 / 1024 << " GiB"
+              << std::endl;
+  }
   double size = 0;
   if(device->model_config.q_lora_rank == 0){
     std::cout << "ACT: "
@@ -226,7 +241,7 @@ bool Cluster::checkMemorySize() {
             << "GB, Cache: " << size_vector.at(2) / 1024.0 / 1024 / 1024 << "GB"
             << std::endl;
     size = size_vector.at(0) / device->model_config.num_layers +
-            size_vector.at(1) + size_vector.at(2);
+            resident_weight_bytes + size_vector.at(2) + expert_cache_bytes;
   }
   else{ // for MLA
     std::cout << "ACT: "
@@ -234,7 +249,8 @@ bool Cluster::checkMemorySize() {
             << "GB, Weight: " << size_vector.at(1) / 1024.0 / 1024 / 1024
             << "GB, Cache: " << size_vector.at(2) / 1024.0 / 1024 / 1024 << "GB"
             << std::endl;
-    size =activation_size + size_vector.at(1) + size_vector.at(2);               
+    size = activation_size + resident_weight_bytes + size_vector.at(2) +
+           expert_cache_bytes;
   }            
                  
   std::cout << "Total: " << size / 1024.0 / 1024 / 1024 << "GB" << std::endl;
@@ -263,11 +279,12 @@ bool Cluster::checkMemorySize() {
         avail_capacity =
             config.memory_capacity -
             (size_vector.at(0) / device->model_config.num_layers) -
-            size_vector.at(1);
+            resident_weight_bytes - expert_cache_bytes;
       }
       else{
         avail_capacity =
-            config.memory_capacity - activation_size - size_vector.at(1);
+            config.memory_capacity - activation_size - resident_weight_bytes -
+            expert_cache_bytes;
       }
 
       if (avail_capacity < 0) {
@@ -521,6 +538,8 @@ std::vector<Stat> Cluster::runIterationMixed(int iter, std::ofstream &csv) {
     scheduler->fillRunningQueue();
   }
 
+  // The loop flushes the previous iteration at its start; keep the final row.
+  exportToCSV(csv, stat_list);
   return stat_list;
 }
 

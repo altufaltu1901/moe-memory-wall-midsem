@@ -113,6 +113,13 @@ class SystemConfig {
 
   hw_metric memory_capacity;
 
+  // Optional single-GPU MoE offloading model. Expert weights start in off-chip
+  // DRAM; only the explicitly budgeted expert cache resides in GPU HBM.
+  bool offchip_experts = false;
+  hw_metric offchip_bandwidth_bytes_per_s = 0;
+  time_ns offchip_latency_ns = 0;
+  long long expert_cache_capacity_bytes = 0;
+
   // Logic specification
   int logic_x;
   hw_metric logic_memory_bandwidth = memory_bandwidth * logic_x;
