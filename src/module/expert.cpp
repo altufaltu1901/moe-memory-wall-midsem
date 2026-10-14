@@ -10,12 +10,14 @@ namespace llm_system {
 
 ExpertLoad::ExpertLoad(const std::string& prefix, int expert_offset,
                        int expert_count, long long expert_bytes,
-                       Device::Ptr device)
-    : Module(prefix, "expert_load", device, {device->device_total_rank}, true),
-      layer_key_(prefix),
+                       Device::Ptr device, bool shared)
+    : Module(prefix, shared ? "shared_expert_load" : "expert_load",
+             device, {device->device_total_rank}, true),
+      layer_key_(prefix + (shared ? ":shared" : ":routed")),
       expert_offset_(expert_offset),
       expert_count_(expert_count),
-      expert_bytes_(expert_bytes) {}
+      expert_bytes_(expert_bytes),
+      shared_(shared) {}
 
 Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
                                 BatchedSequence::Ptr metadata) {
@@ -26,7 +28,7 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
   time_ns duration = 0;
   for (int expert = expert_offset_; expert < expert_offset_ + expert_count_;
        ++expert) {
-    if (metadata->num_token_in_expert.at(expert) == 0) continue;
+    if (!shared_ && metadata->num_token_in_expert.at(expert) == 0) continue;
     auto fetched = device->fetchExpert(layer_key_ + ":" + std::to_string(expert),
                                        expert_bytes_);
     hits += fetched.hit;
@@ -149,6 +151,19 @@ ExpertFFN::ExpertFFN(std::string& prefix, std::string& name,
         add_module(shared_expert_ffn);
     }
   }
+  if (device->config.offchip_experts && num_shared_expert > 0) {
+    const long long shared_bytes =
+        get_module("shared_expert_FFN_0")->get_size().at(1);
+    for (int shared_id = 0; shared_id < num_shared_expert; ++shared_id) {
+      assertTrue(get_module("shared_expert_FFN_" + std::to_string(shared_id))
+                         ->get_size().at(1) == shared_bytes,
+                 "Shared experts must have equal weight sizes");
+    }
+    device->offchip_total_expert_weight_bytes +=
+        shared_bytes * num_shared_expert;
+    add_module(ExpertLoad::Create(module_map_name, 0, num_shared_expert,
+                                  shared_bytes, device, true));
+  }
 
   auto all_reduce_for_e_tp = AllReduce::Create(module_map_name, "moe_all_reduce_for_e_tp",
                                       expert_device_list, device);               
@@ -251,6 +266,10 @@ Tensor::Ptr ExpertFFN::forward(const Tensor::Ptr input,
   (*sync_5)(input, sequences_metadata);
   
   // Shared Expert //
+  if (device->config.offchip_experts && num_shared_expert > 0) {
+    Module::Ptr shared_load = get_module("shared_expert_load");
+    (*shared_load)(input, sequences_metadata);
+  }
   for(int shared_expert_idx = 0 ; shared_expert_idx < num_shared_expert; shared_expert_idx ++){
     Module::Ptr shared_expert_ffn = get_module("shared_expert_FFN_" + std::to_string(shared_expert_idx));
     result = (*shared_expert_ffn)(input, sequences_metadata);

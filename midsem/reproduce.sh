@@ -30,9 +30,7 @@ cmake --build "$repo/build" --parallel 4
 for entry in \
   "offchip:config_offchip.yaml" \
   "offchip_bw16:config_offchip_bw16.yaml" \
-  "offchip_bw64:config_offchip_bw64.yaml" \
-  "cache_check:config_cache_check.yaml" \
-  "compute_only:config_compute_only.yaml"; do
+  "offchip_bw64:config_offchip_bw64.yaml"; do
   folder="${entry%%:*}"
   config="${entry#*:}"
   out="$repo/midsem/artifacts/$folder"

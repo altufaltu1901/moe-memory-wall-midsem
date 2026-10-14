@@ -68,7 +68,14 @@ with (SOURCE / "stdout.log").open(encoding="utf-8") as f:
         s["evictions"] += int(evictions)
         s["bytes"] += int(bytes_loaded)
         s["load_ns"] += float(ns)
-        s["moe_layers"] += 1
+        s["load_stages"] += 1
+        if layer.endswith(":routed"):
+            s["moe_layers"] += 1
+            s["routed_load_ns"] += float(ns)
+        elif layer.endswith(":shared"):
+            s["shared_load_ns"] += float(ns)
+        else:
+            raise ValueError(f"Unknown expert load type: {layer}")
 
 metric_file = next(SOURCE.glob("*decode.csv"))
 with metric_file.open(newline="", encoding="utf-8") as f:
@@ -86,12 +93,15 @@ for step, row in enumerate(metrics):
         "step": step,
         "latency_ms": latency_ns / 1e6,
         "expert_load_ms": load["load_ns"] / 1e6,
+        "routed_load_ms": load["routed_load_ns"] / 1e6,
+        "shared_load_ms": load["shared_load_ns"] / 1e6,
         "expert_compute_ms": compute_ns / 1e6,
         "expert_hits": int(load["hits"]),
         "expert_misses": int(load["misses"]),
         "evictions": int(load["evictions"]),
         "bytes_loaded": int(load["bytes"]),
         "moe_layers": int(load["moe_layers"]),
+        "load_stages": int(load["load_stages"]),
     })
 
 summary = {
@@ -104,6 +114,8 @@ summary = {
     "mean_temporal_overlap": observed_overlap,
     "random_topk_expected_overlap": expected_overlap,
     "mean_load_ms": mean(x["expert_load_ms"] for x in iterations),
+    "mean_routed_load_ms": mean(x["routed_load_ms"] for x in iterations),
+    "mean_shared_load_ms": mean(x["shared_load_ms"] for x in iterations),
     "mean_expert_compute_ms": mean(x["expert_compute_ms"] for x in iterations),
     "mean_total_latency_ms": mean(x["latency_ms"] for x in iterations),
     "mean_load_to_compute_ratio": mean(x["expert_load_ms"] for x in iterations) /
@@ -172,13 +184,16 @@ steps = [x["step"] for x in iterations]
 loads = [x["expert_load_ms"] for x in iterations]
 computes = [x["expert_compute_ms"] for x in iterations]
 plt.figure(figsize=(8, 5))
-plt.bar(steps, loads, label="Expert load from off-chip DRAM")
-plt.bar(steps, computes, bottom=loads, label="Expert FFN execution")
+xs = np.arange(len(steps))
+plt.bar(xs - 0.2, loads, width=0.4, label="Expert load from off-chip DRAM")
+plt.bar(xs + 0.2, computes, width=0.4, label="Expert FFN execution")
 plt.xlabel("Decode iteration")
-plt.ylabel("Simulated time (ms)")
+plt.ylabel("Simulated time (ms, log scale)")
+plt.yscale("log")
+plt.ylim(10, 5000)
 plt.title("Single-GPU MoE: expert loading versus execution")
-plt.xticks(steps)
-plt.legend()
+plt.xticks(xs, steps)
+plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
 plt.tight_layout()
 plt.savefig(OUT / "load_vs_compute.png", dpi=180)
 plt.close()
@@ -196,7 +211,7 @@ for bandwidth, folder in [(16, "offchip_bw16"), (32, "offchip"),
     log_lines = (path / "stdout.log").read_text(encoding="utf-8").splitlines()
     loads_ns = [float(line.rsplit(",", 1)[1]) for line in log_lines
                 if line.startswith("OFFCHIP_LOAD,")]
-    assert len(loads_ns) == 57 * 5
+    assert len(loads_ns) == 57 * 2 * 5
     sweep.append({
         "bandwidth_GBps": bandwidth,
         "mean_token_latency_ms": mean(float(row["latency"]) for row in rows) / 1e6,

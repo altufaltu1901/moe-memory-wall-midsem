@@ -15,7 +15,7 @@ system:
     enabled: on
     bandwidth_GBps: 32 # modeled sustained off-chip DRAM-to-HBM transfer rate
     latency_ns: 2000
-    expert_cache_GiB: 32 # HBM budget for routed experts; other data remains local
+    expert_cache_GiB: 32 # HBM budget for routed and shared experts
   optimization:
     parallel_execution: off
     hetero_subbatch: off

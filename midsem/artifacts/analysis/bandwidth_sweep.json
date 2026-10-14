@@ -1,17 +1,17 @@
 [
   {
     "bandwidth_GBps": 16,
-    "mean_token_latency_ms": 4824.726055072145,
-    "mean_expert_load_ms": 4797.25894
+    "mean_token_latency_ms": 4981.7332390721385,
+    "mean_expert_load_ms": 4954.26601
   },
   {
     "bandwidth_GBps": 32,
-    "mean_token_latency_ms": 2427.838605472286,
-    "mean_expert_load_ms": 2400.37028
+    "mean_token_latency_ms": 2506.3991974722735,
+    "mean_expert_load_ms": 2478.9311
   },
   {
     "bandwidth_GBps": 64,
-    "mean_token_latency_ms": 1229.3948806722567,
-    "mean_expert_load_ms": 1201.92692
+    "mean_token_latency_ms": 1268.73217667226,
+    "mean_expert_load_ms": 1241.264216
   }
 ]

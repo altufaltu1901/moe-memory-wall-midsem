@@ -1,9 +1,0 @@
-[Decode Mode] Current Length of sequences is modified into input_len
-Using synthesis trace
-ACT: 0.00174928GB, Weight: 614.323GB, Cache: 0.133123GB
-Total: 614.458GB
------------------------------------
--------------start-----------------
------------------------------------
-Total: 137339779.360371
-../data/compute_only/deepseekV3_synthesis_1024_10_GPU_N1_D1_TP1_DP1_maxbatch4_maxprocess524288_iter5_skew0_precision_byte1_parallel_execution0_decode.csv

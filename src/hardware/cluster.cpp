@@ -222,9 +222,9 @@ bool Cluster::checkMemorySize() {
   const long long expert_cache_bytes = device->config.offchip_experts
       ? device->config.expert_cache_capacity_bytes : 0;
   assertTrue(resident_weight_bytes >= 0,
-             "Off-chip routed expert weights exceed logical model weights");
+             "Off-chip expert weights exceed logical model weights");
   if (device->config.offchip_experts) {
-    std::cout << "Off-chip routed weights: "
+    std::cout << "Off-chip expert weights: "
               << device->offchip_total_expert_weight_bytes / 1024.0 / 1024 / 1024
               << " GiB, resident weight: "
               << resident_weight_bytes / 1024.0 / 1024 / 1024
