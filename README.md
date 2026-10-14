@@ -36,7 +36,7 @@ The report's additional [skewed-routing cache check](midsem/artifacts/cache_chec
 
 ### Run from the submitted ZIP
 
-The submission ZIP includes the Ramulator2 source under `src/dram/ramulator2`, so no submodule download is needed after extraction. On Ubuntu or WSL 2, install the packages above, then from the extracted ZIP directory run `bash midsem/reproduce.sh`. To regenerate the plots, run the Python commands below. The supplied original configuration is `config.yaml`; its saved upstream reproduction evidence is in `midsem/artifacts/baseline/`.
+The submission ZIP includes Ramulator2 under `src/dram/ramulator2` and its pinned C++ build dependencies (`yaml-cpp`, `spdlog`, and `argparse`) under `src/dram/ramulator2/ext/`. No source download is needed after extraction. On Ubuntu or WSL 2, install the packages above, then from the extracted ZIP directory run `bash midsem/reproduce.sh`. To regenerate the plots, run the Python commands below. The supplied original configuration is `config.yaml`; its saved upstream reproduction evidence is in `midsem/artifacts/baseline/`.
 
 ## Regenerate the plots
 
