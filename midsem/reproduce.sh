@@ -24,7 +24,15 @@ else
   git -C "$ramulator" apply --ignore-space-change "$compat"
 fi
 
-cmake -S "$repo" -B "$repo/build" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake_args=(-DCMAKE_POLICY_VERSION_MINIMUM=3.5)
+for dependency in yaml-cpp spdlog argparse; do
+  source_dir="$ramulator/ext/$dependency"
+  if [ -f "$source_dir/CMakeLists.txt" ]; then
+    variable="FETCHCONTENT_SOURCE_DIR_${dependency^^}"
+    cmake_args+=("-D$variable=$source_dir")
+  fi
+done
+cmake -S "$repo" -B "$repo/build" "${cmake_args[@]}"
 cmake --build "$repo/build" --parallel 4
 
 for entry in \
