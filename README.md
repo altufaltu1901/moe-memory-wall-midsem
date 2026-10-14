@@ -36,16 +36,17 @@ source .venv/bin/activate
 python -m pip install numpy matplotlib
 python midsem/analyze_midsem.py
 python midsem/analyze_real_trace.py
+python midsem/analyze_cross_layer.py
 ```
 
-The timing [plots and JSON summaries](midsem/artifacts/analysis/) are generated from the simulator logs and CSVs. The [routing-correlation plots](midsem/artifacts/real_trace/analysis/) use the checked-in 1,000-token [public GLM routing sample](https://huggingface.co/datasets/mistrjirka/Predicting-Experts-for-MOE-Suite), with [provenance](midsem/artifacts/real_trace/provenance.json). That trace belongs to a **different model** from the DeepSeekV3 timing simulation. To fetch the sample again, run `python midsem/fetch_public_trace.py` before the two analysis commands; the checked-in copy is sufficient for normal reproduction.
+The timing [plots and JSON summaries](midsem/artifacts/analysis/) are generated from the simulator logs and CSVs. The [routing-correlation plots](midsem/artifacts/real_trace/analysis/) use the checked-in 1,000-token [public GLM routing sample](https://huggingface.co/datasets/mistrjirka/Predicting-Experts-for-MOE-Suite), with [provenance](midsem/artifacts/real_trace/provenance.json). The [adjacent-layer plot](midsem/artifacts/real_trace/analysis/cross_layer_recall.png) tests whether a token's experts at one GLM layer help identify its experts at the next layer, using the first 700 tokens for association counts and the last 300 for evaluation. That trace belongs to a **different model** from the DeepSeekV3 timing simulation. To fetch the sample again, run `python midsem/fetch_public_trace.py` before the analysis commands; the checked-in copy is sufficient for normal reproduction.
 
 ## Midsem evidence
 
 - **Working provided configuration:** [`config.yaml`](config.yaml) is the supplied setup; [`baseline/`](midsem/artifacts/baseline/) has its exit code, metric CSV, and build versions.
 - **Single GPU, no Logic-PIM, all experts off-chip:** [`config_offchip.yaml`](config_offchip.yaml) and the [source changes](src/module/expert.cpp) model DRAM-to-HBM loads with a finite cache. The simulated 80 GiB HBM capacity check passes.
 - **Loading versus execution:** at 32 GB/s, mean expert loading is **2,478.93 ms** and expert execution is **23.68 ms** per decode iteration; total latency is **2,506.40 ms**. See [load-versus-compute plot](midsem/artifacts/analysis/load_vs_compute.png), [bandwidth sweep](midsem/artifacts/analysis/bandwidth_sweep.png), and [full numbers](midsem/artifacts/analysis/summary.json).
-- **Temporal and spatial access patterns:** [synthetic-routing plots](midsem/artifacts/analysis/) and [separate real-routing plots](midsem/artifacts/real_trace/analysis/) show frequency, adjacent-token overlap, and within-layer co-access.
+- **Temporal and spatial access patterns:** [synthetic-routing plots](midsem/artifacts/analysis/) and [separate real-routing plots](midsem/artifacts/real_trace/analysis/) show frequency, adjacent-token overlap, within-layer co-access, and held-out adjacent-layer association.
 
 The off-chip link is a fixed-bandwidth analytical model without transfer contention or transfer/compute overlap. The independent synthetic DeepSeekV3 routes do not demonstrate real routing predictability; the GLM trace provides a separate correlation example.
 
