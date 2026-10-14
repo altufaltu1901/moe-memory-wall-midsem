@@ -24,7 +24,19 @@ cd build
 cd ..
 ```
 
-The unmodified upstream run already captured for this project is in [`midsem/artifacts/baseline/`](midsem/artifacts/baseline/). Its metric CSV has four rows because upstream omitted the final row; the modified branch fixes that omission. The experiment configurations are [`config_offchip.yaml`](config_offchip.yaml), [`config_offchip_bw16.yaml`](config_offchip_bw16.yaml), and [`config_offchip_bw64.yaml`](config_offchip_bw64.yaml).
+The experiment configurations are [`config_offchip.yaml`](config_offchip.yaml), [`config_offchip_bw16.yaml`](config_offchip_bw16.yaml), and [`config_offchip_bw64.yaml`](config_offchip_bw64.yaml).
+
+### Supplied Duplex configuration: reproduction evidence
+
+The supplied [`config.yaml`](config.yaml) specifies **one node with eight B100 GPUs**, a DeepSeekV3 model configuration, and five decode iterations. We ran this original configuration before modifying the simulator. Its saved [exit code is 0](midsem/artifacts/baseline/exit_code.txt), and the [metric CSV](midsem/artifacts/baseline/) records the completed simulation. The [versions file](midsem/artifacts/baseline/versions.txt) pins LLMSimulator `419252761fbdb95b789778a02256d458a5537ec7` and Ramulator2 `b5262869b24790e5ec62d9d9974fca9bbb4f54e0`, along with the build environment. The upstream CSV contains four metric rows although five iterations were requested; the original exporter omitted the final row.
+
+The modified experiment uses **one H100 GPU**, batch size four, and the added off-chip expert path. The original eight-B100 run demonstrates that the supplied configuration works; its latency is not a direct performance comparison with the modified run because the hardware, batch size, and memory path differ.
+
+The report's additional [skewed-routing cache check](midsem/artifacts/cache_check/) and [offloading-disabled timing check](midsem/artifacts/compute_only/) have their configurations and saved results in the repository. These are diagnostic checks; the offloading-disabled model exceeds the simulated H100 capacity.
+
+### Run from the submitted ZIP
+
+The submission ZIP includes the Ramulator2 source under `src/dram/ramulator2`, so no submodule download is needed after extraction. On Ubuntu or WSL 2, install the packages above, then from the extracted ZIP directory run `bash midsem/reproduce.sh`. To regenerate the plots, run the Python commands below. The supplied original configuration is `config.yaml`; its saved upstream reproduction evidence is in `midsem/artifacts/baseline/`.
 
 ## Regenerate the plots
 
