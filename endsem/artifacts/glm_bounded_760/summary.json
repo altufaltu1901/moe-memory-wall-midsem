@@ -1,0 +1,28 @@
+{
+  "on_demand": {
+    "transferred_bytes": 282517831680,
+    "latency_ms": 762.412325722625,
+    "exposed_stall_ms": 748.7544041666666,
+    "traffic_gb_per_token": 23.54315264,
+    "completed_dram_reads": 2155440,
+    "useful_prefetches": 0,
+    "unused_prefetches": 0
+  },
+  "spatial": {
+    "transferred_bytes": 282827161600,
+    "latency_ms": 760.9120103288056,
+    "exposed_stall_ms": 747.2545608333334,
+    "traffic_gb_per_token": 23.568930133333332,
+    "completed_dram_reads": 2255480,
+    "useful_prefetches": 519,
+    "unused_prefetches": 295
+  },
+  "trace": {
+    "offset": 760,
+    "steps": 12,
+    "moe_layers": 75,
+    "sample_ratio": 2048,
+    "chunk_bytes": 1048576,
+    "model": "DeepSeek-shaped timing proxy"
+  }
+}

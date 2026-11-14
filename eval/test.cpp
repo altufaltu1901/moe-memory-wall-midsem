@@ -99,9 +99,15 @@ int main(int argc, char *argv[]) {
     system_config.offchip_ramulator_channels = offchip["ramulator_channels"].as<int>(0);
     system_config.offchip_sample_ratio = offchip["ramulator_sample_ratio"].as<int>(1024);
     system_config.expert_prefetch = offchip["prefetch"].as<bool>(false);
+    system_config.expert_prefetch_chunk_bytes =
+        offchip["prefetch_chunk_bytes"].as<long long>(0);
+    assertTrue(system_config.expert_prefetch_chunk_bytes >= 0 &&
+               system_config.offchip_sample_ratio > 0 &&
+               system_config.expert_prefetch_chunk_bytes %
+                   (64LL * system_config.offchip_sample_ratio) == 0,
+               "Prefetch chunk must align to a sampled DRAM burst");
     const auto channels = system_config.offchip_ramulator_channels;
     assertTrue((channels == 0 || channels == 1 || channels == 2 || channels == 4) &&
-               system_config.offchip_sample_ratio > 0 &&
                (!system_config.expert_prefetch || (channels > 0 &&
                 config["model"]["model_name"].as<std::string>() == "deepseekV3")),
                "Invalid off-chip Ramulator channels, sample ratio or prefetch setting");

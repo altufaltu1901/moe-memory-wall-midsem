@@ -37,7 +37,7 @@ def prepare(batches, offset, steps, output):
     return serialized_routes
 
 
-def run(executable, output, name, steps, layers, ratio):
+def run(executable, output, name, steps, layers, ratio, chunk_bytes):
     root = Path(__file__).resolve().parents[1]
     case = output / name
     case.mkdir()
@@ -48,6 +48,11 @@ def run(executable, output, name, steps, layers, ratio):
     text = (root / "config_offchip.yaml").read_text()
     settings = f"\n    ramulator_channels: 4\n    ramulator_sample_ratio: {ratio}"
     settings += f"\n    prefetch: {str(name == 'spatial').lower()}"
+    if chunk_bytes:
+        settings += f"\n    prefetch_chunk_bytes: {chunk_bytes}"
+        if name == "on_demand":
+            # Prefetch mode reserves a full expert slot. Match its resident capacity.
+            text = text.replace("expert_cache_GiB: 32 ", "expert_cache_GiB: 31.958984375 ")
     text = text.replace("  offchip_experts:", "  offchip_experts:" + settings)
     text = text.replace("  model_name: deepseekV3", f"  model_name: deepseekV3\n  recorded_moe_layers: {layers}")
     for key, value in (("max_batch_size", 1), ("iter", steps), ("output_len", steps + 32),
@@ -70,7 +75,7 @@ def run(executable, output, name, steps, layers, ratio):
     print(f"Completed {name}", flush=True)
 
 
-def check(output, expected, layers, ratio):
+def check(output, expected, layers, ratio, chunk_bytes=0):
     summary = {}
     for name in ("on_demand", "spatial"):
         case = output / name
@@ -91,7 +96,8 @@ def check(output, expected, layers, ratio):
             fields = line.split(",")
             if fields[0] == "EXPERT_DRAM":
                 size, issued, done, cycles = map(int, fields[2:6])
-                assert issued == done == math.ceil(size / (64 * ratio))
+                effective_ratio = min(ratio, max(1, size // (64 * 128)))
+                assert issued == done == math.ceil(size / (64 * effective_ratio))
                 assert cycles > 0
                 dram += size
                 requests += done
@@ -105,10 +111,11 @@ def check(output, expected, layers, ratio):
             elif fields[0] == "EXPERT_PREFETCH_UNUSED":
                 rejected += 1
         assert dram == demand + prefetch and requests > 0
-        assert prefetch == (useful + rejected) * 44_040_192
+        assert prefetch == (useful + rejected) * (chunk_bytes or 44_040_192)
         assert (prefetch > 0) == (name == "spatial")
         assert (case / "exit_code.txt").read_text().strip() == "0"
         summary[name] = dict(
+            transferred_bytes=dram,
             latency_ms=mean(float(m["latency"]) for m in metrics) / 1e6,
             exposed_stall_ms=stall / len(metrics) / 1e6,
             traffic_gb_per_token=dram / len(metrics) / 1e9,
@@ -130,20 +137,25 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--steps", type=int, default=12)
     parser.add_argument("--sample-ratio", type=int, default=2048)
+    parser.add_argument("--chunk-mib", type=int, default=0)
+    parser.add_argument("--offset", type=int, default=700)
     args = parser.parse_args()
     batches = glm()
-    offset = 700
-    if not 2 <= args.steps <= len(batches) - offset or args.sample_ratio < 1:
-        parser.error("Invalid trace length or sample ratio")
+    offset = args.offset
+    chunk_bytes = args.chunk_mib * 2**20
+    if (not 0 <= offset < len(batches) or not 2 <= args.steps <= len(batches) - offset
+            or args.sample_ratio < 1 or not 0 <= args.chunk_mib < 42
+            or chunk_bytes % (64 * args.sample_ratio)):
+        parser.error("Invalid trace range, chunk size or sample ratio")
     output = args.output.resolve()
     output.mkdir()
     expected = prepare(batches, offset, args.steps, output)
     layers = len(batches[0])
     for name in ("on_demand", "spatial"):
-        run(args.executable.resolve(strict=True), output, name, args.steps, layers, args.sample_ratio)
-    summary = check(output, expected, layers, args.sample_ratio)
+        run(args.executable.resolve(strict=True), output, name, args.steps, layers, args.sample_ratio, chunk_bytes)
+    summary = check(output, expected, layers, args.sample_ratio, chunk_bytes)
     summary["trace"] = dict(offset=offset, steps=args.steps, moe_layers=layers,
-                            sample_ratio=args.sample_ratio, model="DeepSeek-shaped timing proxy")
+                            sample_ratio=args.sample_ratio, chunk_bytes=chunk_bytes, model="DeepSeek-shaped timing proxy")
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 
 

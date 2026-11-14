@@ -167,13 +167,13 @@ MemorySystem:
     memory_->connect_frontend(frontend_);
   }
 
-  time_ns read(const std::string& key, long long bytes, int sample_ratio) {
+  time_ns read(const std::string& key, long long bytes, int sample_ratio, long long offset) {
     constexpr long long burst = 64;
     const auto requests = (bytes + burst * sample_ratio - 1) / (burst * sample_ratio);
     // Hash identities to aligned offsets in the sampled address space.
     std::uint64_t hash = 14695981039346656037ULL;
     for (unsigned char byte : key) hash = (hash ^ byte) * 1099511628211ULL;
-    const auto base = (hash % 2048) * (64ULL << 20);
+    const auto base = (hash % 2048) * (64ULL << 20) + offset / sample_ratio;
     long long issued = 0, completed = 0, cycles = 0;
     auto callback = [&](Ramulator::Request&) { ++completed; };
     while (completed < requests) {
@@ -198,13 +198,18 @@ MemorySystem:
   Ramulator::IMemorySystem* memory_;
 };
 
-time_ns Device::expertTransfer(const std::string& key, long long bytes) {
+time_ns Device::expertTransfer(const std::string& key, long long bytes, long long offset) {
   const auto link = bytes * 1e9 / config.offchip_bandwidth_bytes_per_s;
   if (!config.offchip_ramulator_channels) return config.offchip_latency_ns + link;
   if (!expert_dram_) {
     expert_dram_ = std::make_shared<ExpertDram>(config.offchip_ramulator_channels);
   }
-  const auto dram = expert_dram_->read(key, bytes, config.offchip_sample_ratio);
+  // Use enough bursts for short chunks so the first-read startup is not
+  // multiplied by the same factor as a full expert-sized transfer.
+  constexpr long long min_bursts = 128;
+  const auto sample_ratio = static_cast<int>(std::min<long long>(
+      config.offchip_sample_ratio, std::max(1LL, bytes / (64 * min_bursts))));
+  const auto dram = expert_dram_->read(key, bytes, sample_ratio, offset);
   return config.offchip_latency_ns + std::max(dram, link);
 }
 
@@ -240,9 +245,14 @@ Device::ExpertFetch Device::fetchExpert(const std::string& key,
   if (pending_expert_) {
     result.load_duration_ns = std::max<time_ns>(0, pending_expert_->ready_ns - now);
     if (key == pending_expert_->key) {
-      if (bytes != pending_expert_->bytes) throw std::logic_error("Prefetch weight size mismatch");
+      const auto staged = pending_expert_->bytes;
+      if (staged > bytes) throw std::logic_error("Prefetch weight size mismatch");
       std::cout << "EXPERT_PREFETCH_USED," << key << ',' << result.load_duration_ns << '\n';
       pending_expert_.reset();
+      if (bytes > staged) {
+        result.bytes_transferred = bytes - staged;
+        result.load_duration_ns += expertTransfer(key, bytes - staged, staged);
+      }
       cacheExpert(key, bytes, result);
       return result;
     }
@@ -307,9 +317,11 @@ void Device::prefetchExpert(const std::string& layer, long long bytes, time_ns q
   for (int expert : candidates) {
     const auto key = next->second + ":" + std::to_string(expert);
     if (expert_index_.count(key)) continue;
-    const auto service = expertTransfer(key, bytes);
-    pending_expert_ = PendingExpert{key, now + service, bytes};
-    std::cout << "EXPERT_PREFETCH," << key << ',' << bytes << ',' << now
+    const auto chunk = config.expert_prefetch_chunk_bytes;
+    const auto staged = chunk > 0 ? std::min(chunk, bytes) : bytes;
+    const auto service = expertTransfer(key, staged);
+    pending_expert_ = PendingExpert{key, now + service, staged};
+    std::cout << "EXPERT_PREFETCH," << key << ',' << staged << ',' << now
               << ',' << service << '\n';
     break;
   }

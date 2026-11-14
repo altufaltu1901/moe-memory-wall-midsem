@@ -111,3 +111,17 @@ GPU dimensions, expert weight sizes and shared experts come from the
 DeepSeekV3 timing proxy. Expert transfers use four Ramulator DDR4 channels
 with one 64-byte request per 2,048 bursts sampled and scaled to full weight.
 These are simulated results for GLM routing with proxy compute and memory.
+
+### Bounded speculative transfers
+
+Add --chunk-mib 1 to stage only the first 1 MiB of a 42 MiB expert.
+A correct prediction fetches the remaining 41 MiB on demand, while a wrong
+prediction spends bandwidth on only the staged chunk. The link remains
+serialized and charges setup time on each command. Short reads use at least
+128 sampled bursts when the transfer size permits. This avoids scaling
+first-read overhead from an eight-request sample to the entire 1 MiB chunk. Both runs have the same
+resident capacity because the baseline gives up a slot equal to the
+prefetcher's reserved slot. Use --offset 760 for the separate trace window.
+
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --chunk-mib 1
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --chunk-mib 1 --offset 760

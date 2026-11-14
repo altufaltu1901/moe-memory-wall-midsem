@@ -119,6 +119,7 @@ class SystemConfig {
   int offchip_ramulator_channels = 0;
   int offchip_sample_ratio = 1024;
   bool expert_prefetch = false;
+  long long expert_prefetch_chunk_bytes = 0;
   hw_metric offchip_bandwidth_bytes_per_s = 0;
   time_ns offchip_latency_ns = 0;
   long long expert_cache_capacity_bytes = 0;
