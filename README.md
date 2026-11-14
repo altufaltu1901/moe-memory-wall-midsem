@@ -65,3 +65,5 @@ The off-chip link is a fixed-bandwidth analytical model without transfer content
 **Report PDF reminder:** include the repository URL above directly in your PDF. The project brief requires students to write the report themselves. The brief does not specify a particular PDF filename or upload layout here; follow the course submission portal's instructions for those details.
 
 The original LLMSimulator license is in [`LICENSE`](LICENSE).
+
+The [end evaluation experiments](endsem/README.md) extend the saved LLMSimulator runs with expert prediction and prefetch replay.
