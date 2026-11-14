@@ -135,6 +135,7 @@ class Device : public std::enable_shared_from_this<Device> {
   std::map<std::string, std::vector<int>> previous_routes_;
   std::map<std::string, std::string> next_layer_;
   std::string previous_layer_;
+  std::size_t prefetch_index_ = 0;
   time_ns expertTransfer(const std::string& key, long long bytes);
   void cacheExpert(const std::string& key, long long bytes, ExpertFetch& result);
   std::list<std::pair<std::string, long long>> expert_lru_;

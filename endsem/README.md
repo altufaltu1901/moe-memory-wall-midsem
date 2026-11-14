@@ -95,3 +95,19 @@ energy. These are estimates rather than a calibrated DDR4 power model.
 Linux and Windows can generate different synthetic routes because C++ library
 distributions differ. Compare matched cases from the same executable. The
 analytical control preserves the original timing model and expert inventory.
+
+## Public GLM routes in the coupled simulator
+
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIRECTORY
+
+The matched batch-one cases use 12 consecutive tokens starting at position
+700 of the public trace. Each token uses the recorded top-eight choices at
+all 75 MoE layers. The route logger is checked against the original input.
+The spatial policy generates its candidate list from earlier observed routes
+and the current source layer. LLMSimulator issues at most one candidate that
+is absent from HBM. The first token initializes next-layer relationships.
+
+GPU dimensions, expert weight sizes and shared experts come from the
+DeepSeekV3 timing proxy. Expert transfers use four Ramulator DDR4 channels
+with one 64-byte request per 2,048 bursts sampled and scaled to full weight.
+These are simulated results for GLM routing with proxy compute and memory.

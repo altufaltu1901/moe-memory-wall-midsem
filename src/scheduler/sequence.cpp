@@ -1,6 +1,9 @@
 #include "scheduler/sequence.h"
 
 #include <cstdlib>
+#include <set>
+#include <sstream>
+#include <stdexcept>
 
 #include "scheduler/scheduler.h"
 
@@ -18,6 +21,29 @@ static std::ofstream* routeTrace() {
   }();
   return trace && *trace ? trace.get() : nullptr;
 }
+// Recorded decode routes, flattened in token/layer order. Fail on exhaustion.
+static const std::vector<std::vector<int>>& recordedRoutes() {
+  static const auto routes = [] {
+    std::vector<std::vector<int>> rows;
+    if (const char* path = std::getenv("MOE_INPUT_ROUTES")) {
+      std::ifstream file(path);
+      if (!file) throw std::runtime_error("Could not open MOE_INPUT_ROUTES");
+      std::string line;
+      while (std::getline(file, line)) {
+        std::istringstream input(line);
+        std::vector<int> experts;
+        int expert;
+        while (input >> expert) experts.push_back(expert);
+        if (!input.eof() || experts.empty()) throw std::runtime_error("Invalid route row");
+        rows.push_back(std::move(experts));
+      }
+      if (rows.empty()) throw std::runtime_error("Empty recorded route trace");
+    }
+    return rows;
+  }();
+  return routes;
+}
+
 Sequence::Sequence(int expert_seq_id, int input_len, int output_len)
     : expert_seq_id(expert_seq_id),
       input_len(input_len),
@@ -200,7 +226,24 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
 
     for (int token_id = current_len;
          token_id < current_len + seq->num_process_token; token_id++) {
-      if (seq->get_expert_from_list) {
+      const auto& recorded = recordedRoutes();
+      if (!recorded.empty()) {
+        if (sequence.size() != 1 || token_id < model.input_len) {
+          throw std::runtime_error("Recorded routes require one decode sequence");
+        }
+        static const int first_token = token_id;
+        if (token_id < first_token) throw std::runtime_error("Recorded token position went backwards");
+        const auto& experts = recorded.at((token_id - first_token) * num_layer + cur_layer);
+        if (experts.size() != top_k || std::set<int>(experts.begin(), experts.end()).size() != experts.size()) {
+          throw std::runtime_error("Invalid recorded top-k");
+        }
+        for (int expert : experts) {
+          if (expert < 0 || expert >= num_expert) throw std::runtime_error("Recorded expert out of range");
+          ++num_token_in_expert.at(expert);
+          if (trace) *trace << seq->id << ',' << token_id << ',' << actual_layer
+                            << ',' << expert << ",recorded\n";
+        }
+      } else if (seq->get_expert_from_list) {
         for (int k = 0; k < top_k; k++) {
           int e_id = 0;
           e_id = scheduler->sequences_info[seq_id]

@@ -207,6 +207,13 @@ int main(int argc, char *argv[]) {
     fail("No model configuration of " + model_name);
   }
 
+  if (auto trace_layers = config["model"]["recorded_moe_layers"]) {
+    const int layers = trace_layers.as<int>();
+    assertTrue(model_name == "deepseekV3" && layers > 0 && layers <= 128,
+               "Recorded route topology expects the DeepSeek timing proxy");
+    model_config.num_layers = model_config.first_k_dense + layers;
+  }
+
   model_config.e_tp_dg =
       config["system"]["distribution"]["expert_tensor_degree"].as<int>();
   model_config.ne_tp_dg =

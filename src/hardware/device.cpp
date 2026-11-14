@@ -1,6 +1,9 @@
 #include "hardware/device.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <random>
 #include <string>
 #include <stdexcept>
@@ -266,13 +269,42 @@ void Device::routeExperts(const std::string& layer, const std::vector<int>& rout
   }
 }
 
+static const std::vector<std::vector<int>>& prefetchPlan() {
+  static const auto plan = [] {
+    std::vector<std::vector<int>> rows;
+    if (const char* path = std::getenv("MOE_PREFETCH_PLAN")) {
+      if (!std::getenv("MOE_INPUT_ROUTES")) throw std::runtime_error("Plan requires recorded routes");
+      std::ifstream file(path);
+      if (!file) throw std::runtime_error("Could not open MOE_PREFETCH_PLAN");
+      std::string line;
+      while (std::getline(file, line)) {
+        std::istringstream input(line);
+        std::vector<int> experts;
+        int expert;
+        while (input >> expert) {
+          if (expert < 0 || expert >= 256) throw std::runtime_error("Invalid predicted expert");
+          experts.push_back(expert);
+        }
+        if (!input.eof()) throw std::runtime_error("Invalid prefetch plan row");
+        rows.push_back(std::move(experts));
+      }
+      if (rows.empty()) throw std::runtime_error("Empty prefetch plan");
+    }
+    return rows;
+  }();
+  return plan;
+}
+
 void Device::prefetchExpert(const std::string& layer, long long bytes, time_ns queued_ns) {
   const auto next = next_layer_.find(layer);
+  const auto& plan = prefetchPlan();
+  const std::vector<int>* planned = plan.empty() ? nullptr : &plan.at(prefetch_index_++);
   if (next == next_layer_.end() || bytes > config.expert_cache_capacity_bytes) return;
   const auto now = get_time() + queued_ns;
   if (pending_expert_ && pending_expert_->ready_ns > now) return;
   pending_expert_.reset();
-  for (int expert : previous_routes_[next->second]) {
+  const auto& candidates = planned ? *planned : previous_routes_[next->second];
+  for (int expert : candidates) {
     const auto key = next->second + ":" + std::to_string(expert);
     if (expert_index_.count(key)) continue;
     const auto service = expertTransfer(key, bytes);
