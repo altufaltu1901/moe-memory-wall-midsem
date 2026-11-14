@@ -3,6 +3,7 @@
 #include <memory>
 #include <list>
 #include <string>
+#include <optional>
 #include <unordered_map>
 
 #include "common/type.h"
@@ -16,6 +17,8 @@
 #include "dram/power.h"
 
 namespace llm_system {
+
+class ExpertDram;
 
 class Device : public std::enable_shared_from_this<Device> {
   friend class Executor;
@@ -100,7 +103,9 @@ class Device : public std::enable_shared_from_this<Device> {
 
 
   void setExecStatus(ExecStatus& exec_status_);
-  ExpertFetch fetchExpert(const std::string& key, long long bytes);
+  ExpertFetch fetchExpert(const std::string& key, long long bytes, time_ns queued_ns = 0);
+  void routeExperts(const std::string& layer, const std::vector<int>& routed);
+  void prefetchExpert(const std::string& layer, long long bytes, time_ns queued_ns);
 
   ExecStatus getExecStatus();
   ExecStatus getHighExecStatus();
@@ -120,6 +125,18 @@ class Device : public std::enable_shared_from_this<Device> {
   bool perform_execution;
 
  private:
+  struct PendingExpert {
+    std::string key;
+    time_ns ready_ns;
+    long long bytes;
+  };
+  std::shared_ptr<ExpertDram> expert_dram_;
+  std::optional<PendingExpert> pending_expert_;
+  std::map<std::string, std::vector<int>> previous_routes_;
+  std::map<std::string, std::string> next_layer_;
+  std::string previous_layer_;
+  time_ns expertTransfer(const std::string& key, long long bytes);
+  void cacheExpert(const std::string& key, long long bytes, ExpertFetch& result);
   std::list<std::pair<std::string, long long>> expert_lru_;
   std::unordered_map<std::string,
       std::list<std::pair<std::string, long long>>::iterator> expert_index_;

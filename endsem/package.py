@@ -6,6 +6,7 @@ Pass the verified midsem source archive to reuse its pinned dependencies.
 import argparse
 import hashlib
 import json
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -31,9 +32,19 @@ def main():
             if name != "report.pdf":
                 files[name] = data
 
+    # Include the tracked simulator changes; retain archive-pinned dependencies.
+    base = manifest["repository_commit"]
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-only", "--diff-filter=AM", base, "--",
+         "CMakeLists.txt", "eval", "src", "README.md"], cwd=ROOT, text=True
+    ).splitlines()
+    for name in changed:
+        path = ROOT / name
+        if path.is_file():
+            files[name] = path.read_bytes()
     files["README.md"] = (ROOT / "README.md").read_bytes()
     for path in (ROOT / "endsem").rglob("*"):
-        if path.is_file() and path.suffix in {".cpp", ".py", ".md", ".txt", ".csv", ".json", ".png", ".log"}:
+        if path.is_file() and path.suffix in {".cpp", ".py", ".md", ".txt", ".csv", ".json", ".png", ".log", ".yaml"}:
             files[path.relative_to(ROOT).as_posix()] = path.read_bytes()
     metadata = {
         "midsem_dependency_commits": manifest["dependency_commits"],

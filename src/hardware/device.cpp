@@ -1,5 +1,6 @@
 #include "hardware/device.h"
 
+#include <algorithm>
 #include <random>
 #include <string>
 #include <stdexcept>
@@ -11,6 +12,8 @@
 #include "dram/pimkernel/pim_kernel.h"
 #include "module/module_graph.h"
 #include "module/tensor.h"
+#include "frontend/frontend.h"
+#include "memory_system/memory_system.h"
 
 namespace llm_system {
 
@@ -79,7 +82,11 @@ void Device::connectTopModuleGraph() {
   top_module_graph->connectDevice(get_ptr());
 }
 
-void Device::reset_status() { status = StatusBoard(); }
+void Device::reset_status() {
+  status = StatusBoard();
+  previous_layer_.clear();
+  pending_expert_.reset();
+}
 void Device::reset_timeboard() { top_module_graph->reset_timeboard(); }
 
 void Device::add_module(std::string name, Module_ptr module) {
@@ -130,25 +137,80 @@ void Device::setExecStatus(ExecStatus& exec_status_) {
   exec_status = exec_status_;
 }
 
-Device::ExpertFetch Device::fetchExpert(const std::string& key,
-                                        long long bytes) {
-  ExpertFetch result;
-  if (!config.offchip_experts || bytes <= 0) return result;
-
-  auto found = expert_index_.find(key);
-  if (found != expert_index_.end()) {
-    result.hit = true;
-    expert_lru_.splice(expert_lru_.begin(), expert_lru_, found->second);
-    return result;
+// Persistent off-chip controller. Completion callbacks, rather than admitted
+// requests, determine service time. Each expert is sampled in 64-byte bursts.
+class ExpertDram {
+ public:
+  explicit ExpertDram(int channels) : channels_(channels) {
+    auto config = YAML::Load(R"(
+Frontend: {impl: GEM5, clock_ratio: 1}
+MemorySystem:
+  impl: GenericDRAM
+  clock_ratio: 1
+  DRAM:
+    impl: DDR4
+    org: {preset: DDR4_8Gb_x8, rank: 2}
+    timing: {preset: DDR4_2400R}
+  Controller:
+    impl: Generic
+    Scheduler: {impl: FRFCFS}
+    RefreshManager: {impl: AllBank}
+  AddrMapper: {impl: RoBaRaCoCh}
+)");
+    config["MemorySystem"]["DRAM"]["org"]["channel"] = channels;
+    frontend_ = Ramulator::Factory::create_frontend(config);
+    memory_ = Ramulator::Factory::create_memory_system(config);
+    frontend_->connect_memory_system(memory_);
+    memory_->connect_frontend(frontend_);
   }
 
-  result.bytes_transferred = bytes;
-  result.load_duration_ns = config.offchip_latency_ns +
-      static_cast<double>(bytes) * 1e9 / config.offchip_bandwidth_bytes_per_s;
+  time_ns read(const std::string& key, long long bytes, int sample_ratio) {
+    constexpr long long burst = 64;
+    const auto requests = (bytes + burst * sample_ratio - 1) / (burst * sample_ratio);
+    // Hash identities to aligned offsets in the sampled address space.
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char byte : key) hash = (hash ^ byte) * 1099511628211ULL;
+    const auto base = (hash % 2048) * (64ULL << 20);
+    long long issued = 0, completed = 0, cycles = 0;
+    auto callback = [&](Ramulator::Request&) { ++completed; };
+    while (completed < requests) {
+      for (int lane = 0; lane < 2 * channels_ && issued < requests; ++lane) {
+        if (!frontend_->receive_external_requests(
+                Ramulator::Request::Type::Read, base + issued * burst, 0, callback)) break;
+        ++issued;
+      }
+      memory_->tick();
+      if (++cycles > 10000 + requests * 128) {
+        throw std::runtime_error("Off-chip DRAM read completion timed out");
+      }
+    }
+    std::cout << "EXPERT_DRAM," << key << ',' << bytes << ',' << issued << ','
+              << completed << ',' << cycles << ',' << memory_->get_tCK() << '\n';
+    return cycles * static_cast<double>(memory_->get_tCK()) * bytes / (requests * burst);
+  }
 
-  // A weight larger than the budget is loaded for this use but not retained.
-  if (bytes > config.expert_cache_capacity_bytes) return result;
-  while (expert_cache_used_bytes_ + bytes > config.expert_cache_capacity_bytes) {
+ private:
+  int channels_;
+  Ramulator::IFrontEnd* frontend_;
+  Ramulator::IMemorySystem* memory_;
+};
+
+time_ns Device::expertTransfer(const std::string& key, long long bytes) {
+  const auto link = bytes * 1e9 / config.offchip_bandwidth_bytes_per_s;
+  if (!config.offchip_ramulator_channels) return config.offchip_latency_ns + link;
+  if (!expert_dram_) {
+    expert_dram_ = std::make_shared<ExpertDram>(config.offchip_ramulator_channels);
+  }
+  const auto dram = expert_dram_->read(key, bytes, config.offchip_sample_ratio);
+  return config.offchip_latency_ns + std::max(dram, link);
+}
+
+void Device::cacheExpert(const std::string& key, long long bytes, ExpertFetch& result) {
+  // Reserve one fixed expert slot when prefetching is enabled.
+  const auto capacity = config.expert_cache_capacity_bytes -
+                        (config.expert_prefetch ? bytes : 0);
+  if (bytes > capacity) return;
+  while (expert_cache_used_bytes_ + bytes > capacity) {
     auto oldest = std::prev(expert_lru_.end());
     expert_cache_used_bytes_ -= oldest->second;
     expert_index_.erase(oldest->first);
@@ -158,7 +220,67 @@ Device::ExpertFetch Device::fetchExpert(const std::string& key,
   expert_lru_.emplace_front(key, bytes);
   expert_index_[key] = expert_lru_.begin();
   expert_cache_used_bytes_ += bytes;
+}
+
+Device::ExpertFetch Device::fetchExpert(const std::string& key,
+                                       long long bytes, time_ns queued_ns) {
+  ExpertFetch result;
+  if (!config.offchip_experts || bytes <= 0) return result;
+  auto found = expert_index_.find(key);
+  if (found != expert_index_.end()) {
+    result.hit = true;
+    expert_lru_.splice(expert_lru_.begin(), expert_lru_, found->second);
+    return result;
+  }
+
+  const auto now = get_time() + queued_ns;
+  if (pending_expert_) {
+    result.load_duration_ns = std::max<time_ns>(0, pending_expert_->ready_ns - now);
+    if (key == pending_expert_->key) {
+      if (bytes != pending_expert_->bytes) throw std::logic_error("Prefetch weight size mismatch");
+      std::cout << "EXPERT_PREFETCH_USED," << key << ',' << result.load_duration_ns << '\n';
+      pending_expert_.reset();
+      cacheExpert(key, bytes, result);
+      return result;
+    }
+  }
+  result.bytes_transferred = bytes;
+  result.load_duration_ns += expertTransfer(key, bytes);
+  cacheExpert(key, bytes, result);
   return result;
+}
+
+void Device::routeExperts(const std::string& layer, const std::vector<int>& routed) {
+  if (!previous_layer_.empty()) next_layer_[previous_layer_] = layer;
+  previous_layer_ = layer;
+  previous_routes_[layer] = routed;
+  if (pending_expert_ && !pending_expert_->key.empty()) {
+    const bool needed = std::any_of(routed.begin(), routed.end(), [&](int expert) {
+      return pending_expert_->key == layer + ":" + std::to_string(expert);
+    });
+    if (!needed) {
+      // Keep an unused transfer occupying the link until its completion.
+      std::cout << "EXPERT_PREFETCH_UNUSED," << pending_expert_->key << '\n';
+      pending_expert_->key.clear();
+    }
+  }
+}
+
+void Device::prefetchExpert(const std::string& layer, long long bytes, time_ns queued_ns) {
+  const auto next = next_layer_.find(layer);
+  if (next == next_layer_.end() || bytes > config.expert_cache_capacity_bytes) return;
+  const auto now = get_time() + queued_ns;
+  if (pending_expert_ && pending_expert_->ready_ns > now) return;
+  pending_expert_.reset();
+  for (int expert : previous_routes_[next->second]) {
+    const auto key = next->second + ":" + std::to_string(expert);
+    if (expert_index_.count(key)) continue;
+    const auto service = expertTransfer(key, bytes);
+    pending_expert_ = PendingExpert{key, now + service, bytes};
+    std::cout << "EXPERT_PREFETCH," << key << ',' << bytes << ',' << now
+              << ',' << service << '\n';
+    break;
+  }
 }
 
 ExecStatus Device::getHighExecStatus() {

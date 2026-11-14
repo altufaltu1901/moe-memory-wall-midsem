@@ -46,7 +46,7 @@ class Module : public std::enable_shared_from_this<Module> {
 
   void set_device(Device::Ptr device);
 
-  long size(std::vector<std::string> tag = {"weight", "act", "cache"});
+  long long size(std::vector<std::string> tag = {"weight", "act", "cache"});
 
   bool execution() { return graph_execution; }
   void add_tensor(Tensor::Ptr tensor);
@@ -84,7 +84,7 @@ class Module : public std::enable_shared_from_this<Module> {
   bool sync;
   bool need_to_aggregate;
 
-  std::vector<long> get_size();
+  std::vector<long long> get_size();
 
  protected:
   std::vector<int> device_list;

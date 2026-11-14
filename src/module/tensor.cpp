@@ -20,8 +20,8 @@ Tensor::Tensor(std::string name, std::vector<int> shape, std::string tag,
   perform_at_high = true;
 }
 
-long Tensor::getSize() {
-  long size = precision_byte;
+long long Tensor::getSize() {
+  long long size = precision_byte;
   for (int dim : shape) {
     size *= dim;
   }

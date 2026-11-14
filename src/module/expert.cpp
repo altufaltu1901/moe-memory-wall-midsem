@@ -23,6 +23,13 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
                                 BatchedSequence::Ptr metadata) {
   if (!device->perform_execution) return input;
 
+  if (!shared_ && device->config.expert_prefetch) {
+    std::vector<int> routed;
+    for (int expert = expert_offset_; expert < expert_offset_ + expert_count_; ++expert) {
+      if (metadata->num_token_in_expert.at(expert)) routed.push_back(expert);
+    }
+    device->routeExperts(layer_key_, routed);
+  }
   int hits = 0, misses = 0, evictions = 0;
   long long bytes = 0;
   time_ns duration = 0;
@@ -30,12 +37,17 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
        ++expert) {
     if (!shared_ && metadata->num_token_in_expert.at(expert) == 0) continue;
     auto fetched = device->fetchExpert(layer_key_ + ":" + std::to_string(expert),
-                                       expert_bytes_);
+                                       expert_bytes_, duration);
     hits += fetched.hit;
     misses += !fetched.hit;
     evictions += fetched.evictions;
     bytes += fetched.bytes_transferred;
     duration += fetched.load_duration_ns;
+  }
+
+  if (shared_ && device->config.expert_prefetch) {
+    std::string routed_key = layer_key_.substr(0, layer_key_.size() - 6) + "routed";
+    device->prefetchExpert(routed_key, expert_bytes_, duration);
   }
 
   ExecStatus status;

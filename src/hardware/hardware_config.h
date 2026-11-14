@@ -116,6 +116,9 @@ class SystemConfig {
   // Optional single-GPU MoE offloading model. Expert weights start in off-chip
   // DRAM; only the explicitly budgeted expert cache resides in GPU HBM.
   bool offchip_experts = false;
+  int offchip_ramulator_channels = 0;
+  int offchip_sample_ratio = 1024;
+  bool expert_prefetch = false;
   hw_metric offchip_bandwidth_bytes_per_s = 0;
   time_ns offchip_latency_ns = 0;
   long long expert_cache_capacity_bytes = 0;

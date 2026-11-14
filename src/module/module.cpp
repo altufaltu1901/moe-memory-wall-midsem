@@ -34,17 +34,17 @@ void Module::set_device(Device::Ptr device) {
   }
 };
 
-long Module::size(std::vector<std::string> tag) {
-  long act = 0;
-  long weight = 0;
-  long cache = 0;
+long long Module::size(std::vector<std::string> tag) {
+  long long act = 0;
+  long long weight = 0;
+  long long cache = 0;
 
   auto size_vector = get_size();
   act = size_vector.at(0);
   weight = size_vector.at(1);
   cache = size_vector.at(2);
 
-  long total = 0;
+  long long total = 0;
   for (std::string _tag : tag) {
     if (!_tag.compare("act")) {
       total += act;
@@ -57,10 +57,10 @@ long Module::size(std::vector<std::string> tag) {
   return total;
 }
 
-std::vector<long> Module::get_size() {
-  long act = 0;
-  long weight = 0;
-  long cache = 0;
+std::vector<long long> Module::get_size() {
+  long long act = 0;
+  long long weight = 0;
+  long long cache = 0;
   for (auto _tensor : tensor_list) {
     Tensor::Ptr tensor = _tensor.second;
     if (tensor->tag == "act") {
@@ -84,7 +84,7 @@ std::vector<long> Module::get_size() {
     cache += size_vector.at(2);
   }
 
-  std::vector<long> size_vector;
+  std::vector<long long> size_vector;
   size_vector.push_back(act);
   size_vector.push_back(weight);
   size_vector.push_back(cache);

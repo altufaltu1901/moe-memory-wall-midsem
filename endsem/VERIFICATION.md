@@ -1,6 +1,6 @@
 # Course brief verification
 
-Scope: Project 2, pages 5â€“6 of the course project list. This is a reproducibility checklist for the code and experiment artifacts.
+Scope: Project 2, pages 5Ã¢â‚¬â€œ6 of the course project list. This is a reproducibility checklist for the code and experiment artifacts.
 
 ## Mid evaluation
 
@@ -12,11 +12,11 @@ Scope: Project 2, pages 5â€“6 of the course project list. This is a reprodu
 ## Final evaluation
 
 1. **Training-free prediction and overlap.** replay.py updates historical frequencies and co-occurrence counts only after routing is observed. The 77-case endsem matrix includes previous-token and adjacent-layer ablations. GLM overlap uses the last 300 tokens after a 700-token warm-up. The five-step DeepSeek experiments use synthetic routes and provide a timing and cache sanity check.
-2. **Prefetch from off-chip DRAM into GPU HBM.** replay.py models one serialized link, shared cache capacity, eviction, wrong predictions and partially completed transfers. Original routes determine executed experts. This is a trace-driven extension alongside LLMSimulator. Direct in-process prefetch integration remains open.
+2. **Prefetch from off-chip DRAM into GPU HBM.** replay.py models one serialized link, shared cache capacity, eviction, wrong predictions and partially completed transfers. Original routes determine executed experts. The coupled C++ experiment additionally stages a previous-token prediction inside LLMSimulator and services expert requests using a patched Ramulator DDR4 controller.
 3. **Compare on-demand and prefetching runs.** The replay first reproduces the saved on-demand counts, transferred bytes and load time. The output records total latency, amortized token time, throughput, link service, exposed stall and traffic. Match the workload and configuration before comparing.
 4. **Evaluate energy and extra traffic.** The endsem results separate saved LLMSimulator dynamic energy, energy per transferred bit and incremental waiting energy. Sensitivity to transfer and waiting costs is included. Off-chip energy is estimated, with no DRAM power model or hardware energy measurements.
 5. **Final report, complete codebase, one submission.** The source package includes the runnable code, pinned dependencies and evidence. The final student-authored report remains required. Package the final materials once for the group.
-6. **Simulator and cited methods.** LLMSimulator supplies the original routes, timings and component energy estimates; the endsem policies run in replay. The analysis uses adjacent-layer and temporal history inspired by ST-MoE and varies prefetch budgets in the spirit of APEX. The SSD-offloading framework is optional in the brief.
+6. **Simulator and cited methods.** LLMSimulator supplies routes, GPU timings and component energy estimates. The temporal policy also runs in the coupled executable. The wider set of policies runs in replay. The analysis uses adjacent-layer and temporal history inspired by ST-MoE and varies prefetch budgets in the spirit of APEX. The SSD-offloading framework is optional in the brief.
 
 ## Added verification
 
@@ -31,3 +31,7 @@ Scope: Project 2, pages 5â€“6 of the course project list. This is a reprodu
   This tests the DRAM side of the memory model separately from the LLMSimulator
   executable. A coupled run with Ramulator handling each expert request and the
   GPU scheduler executing prefetch events remains an extension.
+
+- check_coupled.py checks exit codes, exact routed expert identity between each
+  matched pair, completed DDR4 request counts, aggregate bytes, outcomes for
+  issued prefetches, and the latency/stall accounting.

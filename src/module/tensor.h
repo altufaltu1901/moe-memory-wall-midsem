@@ -50,7 +50,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   void set();
   void unset();
 
-  long getSize();
+  long long getSize();
 
   std::vector<int>& getShape() { return shape; }
 

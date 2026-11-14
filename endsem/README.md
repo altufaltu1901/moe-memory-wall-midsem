@@ -59,3 +59,39 @@ CSV inputs are in artifacts/ramulator. The DDR4 measurement models a contiguous
 expert read; the replay applies the resulting service cost uniformly to experts.
 It leaves DRAM contention across transfers, host/HBM power, and controller energy
 outside the model. See VERIFICATION.md for the requirement-by-requirement audit.
+
+## Coupled LLMSimulator runs
+
+Build the patched full simulator with the same helper used for the probe.
+The source ZIP must contain this revision of the C++ code.
+
+    python endsem/build_dram_probe.py PATH_TO_SOURCE_ZIP NEW_BUILD_DIRECTORY --llmsimulator
+    python endsem/run_coupled.py NEW_BUILD_DIRECTORY/build/run NEW_RESULTS_DIRECTORY
+    python endsem/check_coupled.py NEW_RESULTS_DIRECTORY
+
+Use run.exe on Windows. The seven saved cases, each with five decode steps,
+are checked by running python endsem/check_coupled.py with no arguments.
+
+The original HBM GPU timing remains at its configured analytical setting.
+The new off-chip controller is independent of that setting. The expert-load
+module calls the patched Ramulator GenericDRAM DDR4 controller and waits for
+actual completion callbacks to obtain a service duration. The configured
+sample ratio of 1,024 uses 672 requests per 42 MiB expert and scales the
+measured batch time to the full weight. A persistent controller preserves
+state across sampled transfers. It advances during transfer service only.
+The effective transfer is the slower of the DRAM and host-link payload
+durations, plus the configured startup latency.
+
+Prefetch uses one reserved HBM slot. After the shared load stage it selects an
+uncached expert from the next layer's previous decode step and schedules its
+completion on the serialized expert link. Future routing still determines
+which experts execute. The GPU clock can advance during the scheduled
+transfer. Demand waits only for any remaining time, including contention
+from unused prefetches. The coupled test uses this simple temporal policy.
+The broader predictor ablations and GLM evaluation remain in the Python
+replay. Energy adds modeled transfer cost and waiting power to logged core
+energy. These are estimates rather than a calibrated DDR4 power model.
+
+Linux and Windows can generate different synthetic routes because C++ library
+distributions differ. Compare matched cases from the same executable. The
+analytical control preserves the original timing model and expert inventory.
