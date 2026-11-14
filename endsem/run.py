@@ -87,6 +87,8 @@ def summarize(rows):
                 mean_step_ms=latency_ms,
                 p95_step_ms=sorted(row["latency_ns"] for row in rows)[math.ceil(.95 * len(rows)) - 1] / 1e6,
                 throughput_tokens_s=tokens / (total["latency_ns"] * 1e-9),
+                amortized_ms_per_token=total["latency_ns"] / tokens / 1e6,
+                overlap_window_ms_per_step=total["overlap_window_ns"] / len(rows) / 1e6,
                 exposed_stall_ms_per_step=total["stall_ns"] / len(rows) / 1e6,
                 expert_load_service_ms_per_step=(total["demand_service_ns"] +
                                                  total["prefetch_service_ns"]) / len(rows) / 1e6,
@@ -96,6 +98,7 @@ def summarize(rows):
                 ready_prefetches=int(total["ready_prefetches"]),
                 partial_prefetches_used=int(total["partial_prefetches_used"]),
                 energy_j_per_token=energy_j, edp_j_ms_per_token=energy_j * latency_ms,
+                core_energy_j_per_token=total["core_energy_j"] / tokens,
                 transfer_energy_j_per_token=total["transfer_energy_j"] / tokens,
                 stall_energy_j_per_token=total["stall_energy_j"] / tokens)
 

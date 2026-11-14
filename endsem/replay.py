@@ -29,6 +29,7 @@ class History:
     def __init__(self, experts=256):
         self.popularity = defaultdict(lambda: np.zeros(experts, dtype=np.int64))
         self.samples = Counter()
+        self.source_support = defaultdict(lambda: np.zeros(experts, dtype=np.int64))
         self.associations = defaultdict(lambda: np.zeros((experts, experts), dtype=np.int64))
         self.previous = {}
         self.experts = experts
@@ -42,8 +43,8 @@ class History:
                 source = list(context.get((sequence, position), ()))
                 if source:
                     observed = self.associations[layer][source]
-                    support = observed.sum(axis=1, keepdims=True)
-                    score += ((observed - support * prior) / (support + 160)).mean(axis=0)
+                    support = self.source_support[layer][source, None]
+                    score += ((observed - support * prior) / (support + 20)).mean(axis=0)
             if policy in {"temporal", "hybrid", "adaptive"}:
                 previous = self.previous.get((layer, sequence))
                 if previous and previous[0] + 1 == position:
@@ -65,6 +66,7 @@ class History:
             self.samples[layer] += 1
             self.previous[layer, sequence] = (position, selected)
             for expert in context.get((sequence, position), ()):
+                self.source_support[layer][expert] += 1
                 self.associations[layer][expert, list(selected)] += 1
 
 
@@ -152,6 +154,8 @@ def replay(batches, compute, core_energy, platform, policy="on_demand", budget=8
             actual = sorted(set().union(*routes.values()))
             link.stats["actual"] += len(actual)
             link.stats["route_events"] += 1
+            if index + 1 < len(layers):
+                link.stats["overlap_window_ns"] += intervals[index] * window_fraction
             link.stats["predicted"] += len(ranked)
             link.stats["overlap"] += len(set(actual).intersection(ranked))
             # Reclaim wrong speculative entries before servicing demands.
@@ -169,7 +173,8 @@ def replay(batches, compute, core_energy, platform, policy="on_demand", budget=8
             target_layer, target_routes = layers[index + 1]
             window = intervals[index] * window_fraction
             if policy == "oracle":
-                ranked = sorted(set().union(*target_routes.values()))[:budget]
+                ranked = [expert for expert in sorted(set().union(*target_routes.values()))
+                          if (target_layer, expert) not in link.cache][:budget]
             else:
                 # Sequence identifiers and positions come from current routes.
                 adaptive_budget = int(np.ceil(window / link.transfer_ns))
@@ -189,5 +194,6 @@ def replay(batches, compute, core_energy, platform, policy="on_demand", budget=8
             rows.append(dict(delta, step=step, tokens=tokens, compute_ns=sum(intervals),
                              latency_ns=sum(intervals) + stall, traffic_bytes=demand + prefetch,
                              transfer_energy_j=transfer_energy, stall_energy_j=stall_energy,
+                             core_energy_j=core_energy[step],
                              energy_j=core_energy[step] + transfer_energy + stall_energy))
     return rows
