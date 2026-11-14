@@ -33,7 +33,7 @@ def main():
 
     files["README.md"] = (ROOT / "README.md").read_bytes()
     for path in (ROOT / "endsem").rglob("*"):
-        if path.is_file() and path.suffix in {".py", ".md", ".txt", ".csv", ".json", ".png"}:
+        if path.is_file() and path.suffix in {".cpp", ".py", ".md", ".txt", ".csv", ".json", ".png", ".log"}:
             files[path.relative_to(ROOT).as_posix()] = path.read_bytes()
     metadata = {
         "midsem_dependency_commits": manifest["dependency_commits"],

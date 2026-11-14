@@ -1,0 +1,8 @@
+Ramulator source: b5262869b24790e5ec62d9d9974fca9bbb4f54e0
+Patches: patch/ramulator2_pim.patch and midsem/ramulator-gcc15-cstdint.patch
+Platform: Windows x64, LLVM-MinGW UCRT
+clang version 23.1.5 (https://github.com/llvm/llvm-project.git 392dfff97d29b59d77e5cac6d4b6ef2585fe7117)
+Target: x86_64-w64-windows-gnu
+cmake version 3.31.6-msvc6
+Ninja 1.12.1
+Measured executable SHA-256: A34FAE5769A8389EB94EC64A9E612AEFE74DAD65AC7CE2F366D0B5256D378B72
