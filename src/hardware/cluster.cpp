@@ -1,6 +1,7 @@
 #include "hardware/cluster.h"
 
 #include <filesystem>
+#include <cstdlib>
 
 #include "common/assert.h"
 #include "hardware/stat.h"
@@ -441,6 +442,7 @@ void Cluster::exportToCSV(std::ofstream &csv, std::vector<Stat> &stat_list) {
 std::vector<Stat> Cluster::runIteration(int iter, std::string file_name) {
   std::ofstream csv;
   csv.open(file_name);
+  assertTrue(static_cast<bool>(csv), "Could not open output metrics: " + file_name);
 
   csv << "iter_info,split,type,time,latency,queueing_delay,arrival_time,seq_queue_"
          "size,"
@@ -457,8 +459,12 @@ std::vector<Stat> Cluster::runIteration(int iter, std::string file_name) {
   scheduler->fillSequenceQueue();
   scheduler->fillRunningQueue();
 
-  // hitting
-  scheduler->hittingQueue(10000);
+  // A recorded single decode trajectory specifies its exact initial context.
+  // Synthetic benchmarks keep their historical queue warm-up behavior.
+  if (!(std::getenv("MOE_EXACT_CONTEXT") && std::getenv("MOE_INPUT_ROUTES") &&
+        scheduler->model_config.model_name == "glm5_2")) {
+    scheduler->hittingQueue(10000);
+  }
 
   if (config.disagg_system) {
     stat_list = runIterationSumGenSplit(iter, csv);

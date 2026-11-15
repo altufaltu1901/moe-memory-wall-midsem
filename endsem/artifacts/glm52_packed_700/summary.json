@@ -1,0 +1,33 @@
+{
+  "on_demand": {
+    "transferred_bytes": 58308526080,
+    "latency_ms": 180.70263951434208,
+    "exposed_stall_ms": 157.15377675,
+    "traffic_gb_per_token": 4.85904384,
+    "completed_dram_reads": 892079,
+    "useful_prefetches": 0,
+    "unused_prefetches": 0,
+    "shared_prefetches": 0
+  },
+  "spatial": {
+    "transferred_bytes": 58683916288,
+    "latency_ms": 178.53951169544908,
+    "exposed_stall_ms": 154.99058683333334,
+    "traffic_gb_per_token": 4.890326357333333,
+    "completed_dram_reads": 987631,
+    "useful_prefetches": 519,
+    "unused_prefetches": 358,
+    "shared_prefetches": 75
+  },
+  "trace": {
+    "offset": 700,
+    "steps": 12,
+    "moe_layers": 75,
+    "sample_ratio": 1024,
+    "chunk_bytes": 1048576,
+    "shared_prefetch": true,
+    "oracle": false,
+    "logical_expert_bytes": 75497472,
+    "model": "GLM-5.2 publisher geometry, GGUF packed expert bytes"
+  }
+}

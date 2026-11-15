@@ -30,6 +30,7 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
     }
     device->routeExperts(layer_key_, routed);
   }
+  const auto transfer_bytes = device->expertStorageBytes(layer_key_, shared_, expert_bytes_);
   int hits = 0, misses = 0, evictions = 0;
   long long bytes = 0;
   time_ns duration = 0;
@@ -37,7 +38,7 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
        ++expert) {
     if (!shared_ && metadata->num_token_in_expert.at(expert) == 0) continue;
     auto fetched = device->fetchExpert(layer_key_ + ":" + std::to_string(expert),
-                                       expert_bytes_, duration);
+                                       transfer_bytes, duration);
     hits += fetched.hit;
     misses += !fetched.hit;
     evictions += fetched.evictions;
@@ -49,7 +50,9 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
     // The coupled DeepSeek proxy has one shared expert with the same weight
     // size as a routed expert. It runs once per active layer.
     auto shared_key = layer_key_.substr(0, layer_key_.size() - 6) + "shared:0";
-    device->prefetchSharedExpert(shared_key, expert_bytes_, duration);
+    device->prefetchSharedExpert(shared_key,
+                                 device->expertStorageBytes(shared_key, true, expert_bytes_),
+                                 duration);
   }
   if (shared_ && device->config.expert_prefetch) {
     std::string routed_key = layer_key_.substr(0, layer_key_.size() - 6) + "routed";
@@ -62,6 +65,10 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
   status.memory_duration = duration;
   status.memory_size = bytes;
   device->setExecStatus(status);
+  const auto old_precision = std::cout.precision(17);
+  std::cout << "EXPERT_STAGE," << step_ << ',' << layer_key_ << ','
+            << device->get_time() << ',' << device->get_time() + duration << '\n';
+  std::cout.precision(old_precision);
   std::cout << "OFFCHIP_LOAD," << step_++ << ',' << layer_key_ << ','
             << hits << ',' << misses << ',' << evictions << ','
             << bytes << ',' << duration << std::endl;

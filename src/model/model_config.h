@@ -1,6 +1,7 @@
 #pragma once
 #include <map>
 #include <string>
+#include <vector>
 
 #include "common/assert.h"
 
@@ -51,6 +52,10 @@ class ModelConfig {
     }
   };
 
+  bool hasDensePrefix() const {
+    return model_name == "deepseekV3" || model_name == "glm5_2";
+  }
+
   ModelConfig& operator=(const ModelConfig& rhs) = default;
 
   int hidden_dim;
@@ -74,6 +79,10 @@ class ModelConfig {
   int qk_nope_head_dim; // for MLA
   int qk_rope_head_dim; // for MLA  
   int n_vocab;
+  int value_head_dim = 0;
+  std::vector<long long> packed_routed_bytes;
+  std::vector<long long> packed_shared_bytes;
+  long long packed_staging_bytes = 0;
   
   bool compressed_kv;
   bool use_absorb;
@@ -107,6 +116,15 @@ static ModelConfig glam = ModelConfig(4096, 128, 32, 32, 32, 8192, 16384, 16384,
 static ModelConfig deepseekV3 =
     ModelConfig(7168, 128, 60, 128, 128, 131072, 18432, 2048, 1, 1, 256, 1, 1, 8,
                 3, 3, 1536, 512, 128, 64, 129280, true, true, 0.0,"deepseekV3"); // n_layer = 60 (not consider MTP module)
+
+// Published zai-org/GLM-5.2 base geometry. Decode-only, excluding MTP.
+static const ModelConfig glm5_2 = [] {
+  ModelConfig config(6144, 192, 78, 64, 64, 1048576, 12288, 2048, 1, 2,
+                     256, 1, 1, 8, 3, 3, 2048, 512, 192, 64, 154880,
+                     true, true, 0.0, "glm5_2");
+  config.value_head_dim = 256;
+  return config;
+}();
 
 static ModelConfig llama3_405B =
     ModelConfig(16384, 128, 126, 128, 8, 131072, 53248, 53248, 1, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 128256, false, false, 0.0,

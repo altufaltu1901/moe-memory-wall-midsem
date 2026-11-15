@@ -1,0 +1,350 @@
+{
+  "interpretation": {
+    "global_fixed_traffic_overlap": "Theoretical ceiling for the measured workload and unchanged serialized expert service. With no traffic moved between decode steps, an ideal GPU and link could at best overlap min(non-transfer time, expert service) per step. No routing barrier, cache visibility constraint, or scheduling overhead is charged.",
+    "phase_local_fixed_traffic_overlap": "Tighter analytical ceiling with perfect knowledge and only existing scheduling hooks. Each gap from a routed load to its shared load or a shared load to the next routed load can hide at most min(gap, following load service). Uses exact stage timestamps when recorded. The estimate assumes unchanged service time, ignores staging capacity limits, and does not permit transfers across decode steps.",
+    "measured_hindsight_oracle": "Separate simulator run that knows the next layer's true route set. The practical policy uses prior observations only. Measured policies are verified against raw route and transfer logs, with identical paired on-demand runs before combining comparisons.",
+    "zero_expert_transfer_what_if": "Counterfactual with every off-chip expert transfer eliminated and unchanged non-transfer work. This requires different memory/traffic assumptions and is not a prefetch result."
+  },
+  "cases": [
+    {
+      "case": "coupled_ram1",
+      "decode_steps": 5,
+      "tokens": 20,
+      "on_demand_ms_per_token": 1651.44110926887,
+      "serialized_expert_service_ms_per_token": 1644.5786655,
+      "non_expert_transfer_ms_per_token": 6.862443768869782,
+      "expert_traffic_gb_per_token": 19.785056256,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 6.862443768869782,
+        "latency_floor_ms_per_token": 1644.5786655,
+        "max_latency_reduction_pct": 0.41554274810973674,
+        "max_speedup_x": 1.0041727671122278
+      },
+      "phase_local_fixed_traffic_overlap": null,
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 1644.5786655,
+        "latency_floor_ms_per_token": 6.862443768869782,
+        "max_latency_reduction_pct": 99.58445725189026,
+        "max_speedup_x": 240.64912804973787
+      }
+    },
+    {
+      "case": "coupled_ram4",
+      "decode_steps": 5,
+      "tokens": 20,
+      "on_demand_ms_per_token": 626.043241575228,
+      "serialized_expert_service_ms_per_token": 619.181485,
+      "non_expert_transfer_ms_per_token": 6.861756575227928,
+      "expert_traffic_gb_per_token": 19.785056256,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 6.861756575227856,
+        "latency_floor_ms_per_token": 619.1814850000001,
+        "max_latency_reduction_pct": 1.0960515375842963,
+        "max_speedup_x": 1.0110819795834622
+      },
+      "phase_local_fixed_traffic_overlap": null,
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 619.181485,
+        "latency_floor_ms_per_token": 6.861756575227928,
+        "max_latency_reduction_pct": 98.9039484624157,
+        "max_speedup_x": 91.23658566311536
+      }
+    },
+    {
+      "case": "coupled_skew4",
+      "decode_steps": 5,
+      "tokens": 20,
+      "on_demand_ms_per_token": 59.76089584916501,
+      "serialized_expert_service_ms_per_token": 56.715289,
+      "non_expert_transfer_ms_per_token": 3.04560684916501,
+      "expert_traffic_gb_per_token": 1.8122539008,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 3.045606849165003,
+        "latency_floor_ms_per_token": 56.71528900000001,
+        "max_latency_reduction_pct": 5.096320605454171,
+        "max_speedup_x": 1.053699926472472
+      },
+      "phase_local_fixed_traffic_overlap": null,
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 56.715289,
+        "latency_floor_ms_per_token": 3.04560684916501,
+        "max_latency_reduction_pct": 94.90367939454582,
+        "max_speedup_x": 19.62199942699406
+      }
+    },
+    {
+      "case": "glm_shared_700",
+      "decode_steps": 12,
+      "tokens": 12,
+      "on_demand_ms_per_token": 717.2391441473717,
+      "serialized_expert_service_ms_per_token": 703.581465,
+      "non_expert_transfer_ms_per_token": 13.65767914737161,
+      "expert_traffic_gb_per_token": 22.122856448,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 13.657679147371582,
+        "latency_floor_ms_per_token": 703.581465,
+        "max_latency_reduction_pct": 1.9042015844809117,
+        "max_speedup_x": 1.0194116528458743
+      },
+      "phase_local_fixed_traffic_overlap": null,
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 703.581465,
+        "latency_floor_ms_per_token": 13.65767914737161,
+        "max_latency_reduction_pct": 98.09579841551908,
+        "max_speedup_x": 52.51544837216378
+      },
+      "measured_practical_policy": {
+        "latency_ms_per_token": 715.0306517514192,
+        "saved_ms_per_token": 2.208492395952476,
+        "latency_reduction_pct": 0.30791576477296884,
+        "speedup_x": 1.0030886681438662,
+        "exposed_stall_ms_per_token": 701.373335,
+        "expert_traffic_gb_per_token": 22.153003008,
+        "used_prefetches": 544,
+        "unused_prefetches": 345,
+        "shared_prefetches": 75
+      }
+    },
+    {
+      "case": "glm_shared_760",
+      "decode_steps": 12,
+      "tokens": 12,
+      "on_demand_ms_per_token": 762.4123257226249,
+      "serialized_expert_service_ms_per_token": 748.7544041666666,
+      "non_expert_transfer_ms_per_token": 13.657921555958271,
+      "expert_traffic_gb_per_token": 23.54315264,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 13.65792155595834,
+        "latency_floor_ms_per_token": 748.7544041666666,
+        "max_latency_reduction_pct": 1.791408807958761,
+        "max_speedup_x": 1.0182408563875613
+      },
+      "phase_local_fixed_traffic_overlap": null,
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 748.7544041666666,
+        "latency_floor_ms_per_token": 13.657921555958271,
+        "max_latency_reduction_pct": 98.20859119204125,
+        "max_speedup_x": 55.82198745240431
+      },
+      "measured_practical_policy": {
+        "latency_ms_per_token": 760.2545821665101,
+        "saved_ms_per_token": 2.1577435561148377,
+        "latency_reduction_pct": 0.28301530330975416,
+        "speedup_x": 1.0028381855324908,
+        "exposed_stall_ms_per_token": 746.5971233333333,
+        "expert_traffic_gb_per_token": 23.568930133333332,
+        "used_prefetches": 594,
+        "unused_prefetches": 295,
+        "shared_prefetches": 75
+      }
+    },
+    {
+      "case": "glm52_bf16_700",
+      "decode_steps": 12,
+      "tokens": 12,
+      "on_demand_ms_per_token": 1617.5728779520432,
+      "serialized_expert_service_ms_per_token": 1594.0240194503174,
+      "non_expert_transfer_ms_per_token": 23.548858501725835,
+      "expert_traffic_gb_per_token": 50.9607936,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 23.548858501725693,
+        "latency_floor_ms_per_token": 1594.0240194503174,
+        "max_latency_reduction_pct": 1.4558143761374227,
+        "max_speedup_x": 1.0147732143395471
+      },
+      "phase_local_fixed_traffic_overlap": {
+        "saved_ms_per_token": 22.705727624040886,
+        "latency_floor_ms_per_token": 1594.8671503280023,
+        "max_latency_reduction_pct": 1.4036911680163602,
+        "max_speedup_x": 1.0142367517064799,
+        "eligible_windows": 1788,
+        "routed_to_shared_ms_per_token": 13.524864916414261,
+        "shared_to_routed_ms_per_token": 9.180862707626625
+      },
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 1594.0240194503174,
+        "latency_floor_ms_per_token": 23.548858501725835,
+        "max_latency_reduction_pct": 98.54418562386257,
+        "max_speedup_x": 68.69007590467689
+      },
+      "measured_practical_policy": {
+        "latency_ms_per_token": 1602.3949399751332,
+        "saved_ms_per_token": 15.177937976910016,
+        "latency_reduction_pct": 0.9383155580678574,
+        "speedup_x": 1.0094720331413087,
+        "exposed_stall_ms_per_token": 1578.8466483333332,
+        "expert_traffic_gb_per_token": 50.98027963733334,
+        "used_prefetches": 1491,
+        "unused_prefetches": 223,
+        "shared_prefetches": 900
+      },
+      "measured_hindsight_oracle": {
+        "latency_ms_per_token": 1595.6322047434746,
+        "saved_ms_per_token": 21.94067320856857,
+        "latency_reduction_pct": 1.3563947261743747,
+        "speedup_x": 1.0137504577454275,
+        "exposed_stall_ms_per_token": 1572.0823408333333,
+        "expert_traffic_gb_per_token": 50.9607936,
+        "used_prefetches": 1714,
+        "unused_prefetches": 0,
+        "shared_prefetches": 900
+      }
+    },
+    {
+      "case": "glm52_packed_700",
+      "decode_steps": 12,
+      "tokens": 12,
+      "on_demand_ms_per_token": 180.70263951434208,
+      "serialized_expert_service_ms_per_token": 157.15378101254402,
+      "non_expert_transfer_ms_per_token": 23.548858501798076,
+      "expert_traffic_gb_per_token": 4.85904384,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 23.548858501798126,
+        "latency_floor_ms_per_token": 157.15378101254396,
+        "max_latency_reduction_pct": 13.031828735367805,
+        "max_speedup_x": 1.1498459556624887
+      },
+      "phase_local_fixed_traffic_overlap": {
+        "saved_ms_per_token": 10.287491722755117,
+        "latency_floor_ms_per_token": 170.41514779158697,
+        "max_latency_reduction_pct": 5.693050057488848,
+        "max_speedup_x": 1.0603672376315774,
+        "eligible_windows": 961,
+        "routed_to_shared_ms_per_token": 1.1270720763730162,
+        "shared_to_routed_ms_per_token": 9.160419646382103
+      },
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 157.15378101254402,
+        "latency_floor_ms_per_token": 23.548858501798076,
+        "max_latency_reduction_pct": 86.96817126463222,
+        "max_speedup_x": 7.673520119904942
+      },
+      "measured_practical_policy": {
+        "latency_ms_per_token": 178.53951169544908,
+        "saved_ms_per_token": 2.1631278188930025,
+        "latency_reduction_pct": 1.1970648711643852,
+        "speedup_x": 1.0121156812761023,
+        "exposed_stall_ms_per_token": 154.99058683333334,
+        "expert_traffic_gb_per_token": 4.890326357333333,
+        "used_prefetches": 519,
+        "unused_prefetches": 358,
+        "shared_prefetches": 75
+      },
+      "measured_hindsight_oracle": {
+        "latency_ms_per_token": 171.18020220706026,
+        "saved_ms_per_token": 9.52243730728182,
+        "latency_reduction_pct": 5.2696725033316625,
+        "speedup_x": 1.0556281461553798,
+        "exposed_stall_ms_per_token": 147.63125458333334,
+        "expert_traffic_gb_per_token": 4.85904384,
+        "used_prefetches": 887,
+        "unused_prefetches": 0,
+        "shared_prefetches": 75
+      }
+    },
+    {
+      "case": "glm52_packed_trace_700",
+      "decode_steps": 12,
+      "tokens": 12,
+      "on_demand_ms_per_token": 180.73923663964047,
+      "serialized_expert_service_ms_per_token": 157.15378101254402,
+      "non_expert_transfer_ms_per_token": 23.585455627096493,
+      "expert_traffic_gb_per_token": 4.85904384,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 23.585455627096543,
+        "latency_floor_ms_per_token": 157.15378101254396,
+        "max_latency_reduction_pct": 13.049438553357087,
+        "max_speedup_x": 1.1500788302714393
+      },
+      "phase_local_fixed_traffic_overlap": {
+        "saved_ms_per_token": 10.322001737870465,
+        "latency_floor_ms_per_token": 170.41723490177003,
+        "max_latency_reduction_pct": 5.710991110607911,
+        "max_speedup_x": 1.0605690013913216,
+        "eligible_windows": 961,
+        "routed_to_shared_ms_per_token": 1.1270720763730162,
+        "shared_to_routed_ms_per_token": 9.194929661497449
+      },
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 157.15378101254402,
+        "latency_floor_ms_per_token": 23.585455627096493,
+        "max_latency_reduction_pct": 86.95056144664294,
+        "max_speedup_x": 7.66316493932793
+      },
+      "measured_practical_policy": {
+        "latency_ms_per_token": 178.5761088207474,
+        "saved_ms_per_token": 2.1631278188930594,
+        "latency_reduction_pct": 1.1968224825503293,
+        "speedup_x": 1.0121131983061877,
+        "exposed_stall_ms_per_token": 154.99058683333334,
+        "expert_traffic_gb_per_token": 4.890326357333333,
+        "used_prefetches": 519,
+        "unused_prefetches": 358,
+        "shared_prefetches": 75
+      },
+      "measured_hindsight_oracle": {
+        "latency_ms_per_token": 171.18517140534982,
+        "saved_ms_per_token": 9.554065234290647,
+        "latency_reduction_pct": 5.286104673187056,
+        "speedup_x": 1.0558112899374184,
+        "exposed_stall_ms_per_token": 147.59961125,
+        "expert_traffic_gb_per_token": 4.85904384,
+        "used_prefetches": 887,
+        "unused_prefetches": 0,
+        "shared_prefetches": 75
+      }
+    },
+    {
+      "case": "glm52_packed_trace_760",
+      "decode_steps": 12,
+      "tokens": 12,
+      "on_demand_ms_per_token": 190.46489478140978,
+      "serialized_expert_service_ms_per_token": 166.87701817579332,
+      "non_expert_transfer_ms_per_token": 23.58787660561647,
+      "expert_traffic_gb_per_token": 5.160075264,
+      "global_fixed_traffic_overlap": {
+        "saved_ms_per_token": 23.58787660561646,
+        "latency_floor_ms_per_token": 166.87701817579332,
+        "max_latency_reduction_pct": 12.384369640761088,
+        "max_speedup_x": 1.141348861955145
+      },
+      "phase_local_fixed_traffic_overlap": {
+        "saved_ms_per_token": 10.32428481503819,
+        "latency_floor_ms_per_token": 180.14060996637156,
+        "max_latency_reduction_pct": 5.420570980750562,
+        "max_speedup_x": 1.0573123673610605,
+        "eligible_windows": 961,
+        "routed_to_shared_ms_per_token": 1.1270720763730162,
+        "shared_to_routed_ms_per_token": 9.197212738665174
+      },
+      "zero_expert_transfer_what_if": {
+        "saved_ms_per_token": 166.87701817579332,
+        "latency_floor_ms_per_token": 23.58787660561647,
+        "max_latency_reduction_pct": 87.6156303592389,
+        "max_speedup_x": 8.074694384998542
+      },
+      "measured_practical_policy": {
+        "latency_ms_per_token": 188.1010031040245,
+        "saved_ms_per_token": 2.3638916773852827,
+        "latency_reduction_pct": 1.2411167318251703,
+        "speedup_x": 1.0125671401979606,
+        "exposed_stall_ms_per_token": 164.51305191666665,
+        "expert_traffic_gb_per_token": 5.188299434666667,
+        "used_prefetches": 550,
+        "unused_prefetches": 323,
+        "shared_prefetches": 75
+      },
+      "measured_hindsight_oracle": {
+        "latency_ms_per_token": 180.9087371262761,
+        "saved_ms_per_token": 9.556157655133688,
+        "latency_reduction_pct": 5.0172803056967386,
+        "speedup_x": 1.0528230853132505,
+        "exposed_stall_ms_per_token": 157.32079558333334,
+        "expert_traffic_gb_per_token": 5.160075264,
+        "used_prefetches": 887,
+        "unused_prefetches": 0,
+        "shared_prefetches": 75
+      }
+    }
+  ]
+}

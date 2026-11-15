@@ -213,10 +213,22 @@ time_ns Device::expertTransfer(const std::string& key, long long bytes, long lon
   return config.offchip_latency_ns + std::max(dram, link);
 }
 
+long long Device::expertStorageBytes(const std::string& key, bool shared,
+                                     long long logical_bytes) const {
+  const auto& sizes = shared ? model_config.packed_shared_bytes : model_config.packed_routed_bytes;
+  if (sizes.empty()) return logical_bytes;
+  const std::string marker = "_decoder_";
+  const auto layer = key.find(marker);
+  if (layer == std::string::npos) throw std::logic_error("Missing expert layer in key");
+  return sizes.at(std::stoi(key.substr(layer + marker.size())) - model_config.first_k_dense);
+}
+
 void Device::cacheExpert(const std::string& key, long long bytes, ExpertFetch& result) {
   // Reserve one fixed expert slot when prefetching is enabled.
+  const auto reserve = model_config.packed_staging_bytes > 0
+                           ? model_config.packed_staging_bytes : bytes;
   const auto capacity = config.expert_cache_capacity_bytes -
-                        (config.expert_prefetch ? bytes : 0);
+                        (config.expert_prefetch ? reserve : 0);
   if (bytes > capacity) return;
   while (expert_cache_used_bytes_ + bytes > capacity) {
     auto oldest = std::prev(expert_lru_.end());
@@ -325,6 +337,7 @@ void Device::prefetchExpert(const std::string& layer, long long bytes, time_ns q
   if (pending_expert_ && pending_expert_->ready_ns > now) return;
   pending_expert_.reset();
   const auto& candidates = planned ? *planned : previous_routes_[next->second];
+  bytes = expertStorageBytes(next->second, false, bytes);
   for (int expert : candidates) {
     const auto key = next->second + ":" + std::to_string(expert);
     if (expert_index_.count(key)) continue;

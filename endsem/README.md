@@ -96,9 +96,9 @@ Linux and Windows can generate different synthetic routes because C++ library
 distributions differ. Compare matched cases from the same executable. The
 analytical control preserves the original timing model and expert inventory.
 
-## Public GLM routes in the coupled simulator
+## Historical proxy runs with recorded GLM routes
 
-    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIRECTORY
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIRECTORY --geometry proxy
 
 The matched batch-one cases use 12 consecutive tokens starting at position
 700 of the public trace. Each token uses the recorded top-eight choices at
@@ -123,8 +123,8 @@ first-read overhead from an eight-request sample to the entire 1 MiB chunk. Both
 resident capacity because the baseline gives up a slot equal to the
 prefetcher's reserved slot. Use --offset 760 for the separate trace window.
 
-    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --chunk-mib 1
-    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --chunk-mib 1 --offset 760
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --geometry proxy --chunk-mib 1
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --geometry proxy --chunk-mib 1 --offset 760
 
 ### Overlap the known shared expert with routed computation
 
@@ -132,8 +132,8 @@ The combined policy starts a missing shared-expert transfer after routed
 weights arrive. The shared expert always runs on this model. The routed
 prediction still stages at most 1 MiB after the shared load stage.
 
-    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --chunk-mib 1 --shared
-    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --chunk-mib 1 --shared --offset 760
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --geometry proxy --chunk-mib 1 --shared
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --geometry proxy --chunk-mib 1 --shared --offset 760
     python endsem/compare_glm_schedules.py
 
 The comparison script checks the saved logs, identical routes, repeated
@@ -143,3 +143,47 @@ come from one GLM trajectory and use DeepSeek-shaped GPU timing and sampled
 DDR4 service. Energy differences use assumed waiting power and transfer
 cost. See the [research notes](RESEARCH_NOTES.md) and
 [worked report example](EXAMPLE_REPORT.md).
+
+## GLM-5.2 geometry and oracle
+
+Use the current source ZIP to build the coupled executable. These commands
+use the published GLM architecture instead of the earlier DeepSeek geometry.
+
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_BF16_DIRECTORY --chunk-mib 1 --shared
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_BF16_ORACLE_DIRECTORY --oracle --shared
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_PACKED_DIRECTORY --geometry glm5_2_packed --chunk-mib 1 --shared --sample-ratio 1024
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_PACKED_ORACLE_DIRECTORY --geometry glm5_2_packed --oracle --shared --sample-ratio 1024
+    python endsem/ideal_ceiling.py
+
+Packed runs default to the recorded trajectory's context and support the
+second test window with --offset 760. Use --input-len 1024 for the packed
+control with the same context setting as BF16. Each directory must be new.
+
+The GLM model uses 78 base layers with three dense blocks, exact routed
+and shared expert geometry, and separate dimensions for the MLA value and
+key heads. The HBM cache in the packed experiment stores the packed expert
+payloads and reserves one slot the size of the largest shared expert. At the tested short contexts the 2048-key index can select every
+available key. The simulator charges an analytical cost for full DSA index
+layers, using the published IndexShare schedule. Expert traffic in the packed
+experiment uses per-layer byte sizes from the named GGUF. The rest of the
+modeled compute and nonexpert weights use BF16. Quantized kernel timing,
+unpacking cost, MTP, and long-context sparse execution are outside this
+short-context timing model. Ramulator services sampled requests on a modeled
+DDR4/link setup. It provides transfer timing estimates for these settings.
+
+The baseline and prefetch cases replay identical routes and start with a cold
+HBM cache. Prior tokens seed predictor counts. The oracle reads the next
+layer's actual routed experts as a hindsight reference with at most one slot.
+The separate analytical ceiling fixes total transfer service and gives it
+perfect overlap with the observed GPU work. Neither calculation claims a
+physical-device benchmark. The [provenance notes](GLM_TRACE_PROVENANCE.md)
+identify the pinned published model and trace and explain the byte counts.
+
+In the matched-context packed experiments, the practical scheduler reduced
+latency from 180.739 to 178.576 ms/token and from 190.465 to 188.101 ms/token.
+The hindsight oracle reached 171.185 and 180.909 ms/token with unchanged
+traffic. Those speedups are 1.20–1.24% for the practical policy and 5.02–5.29%
+for the oracle. The fixed-traffic ceiling for the existing scheduling points
+is 5.42–5.71%. The more permissive ceiling of 12.38–13.05% assumes that all
+available compute can overlap transfer across the entire decode step.
+[Verified results and ceilings](artifacts/ideal_ceiling.json).

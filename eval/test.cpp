@@ -1,6 +1,9 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <iostream>
 
 #include "hardware/stat.h"
@@ -112,7 +115,7 @@ int main(int argc, char *argv[]) {
     const auto channels = system_config.offchip_ramulator_channels;
     assertTrue((channels == 0 || channels == 1 || channels == 2 || channels == 4) &&
                (!system_config.expert_prefetch || (channels > 0 &&
-                config["model"]["model_name"].as<std::string>() == "deepseekV3")),
+                (model_name == "deepseekV3" || model_name == "glm5_2"))),
                "Invalid off-chip Ramulator channels, sample ratio or prefetch setting");
     system_config.offchip_bandwidth_bytes_per_s =
         offchip["bandwidth_GBps"].as<double>() * 1e9;
@@ -207,6 +210,8 @@ int main(int argc, char *argv[]) {
     model_config = grok1;
   } else if (!model_name.compare("deepseekV3")) {
     model_config = deepseekV3;
+  } else if (model_name == "glm5_2") {
+    model_config = glm5_2;
   }else if (!model_name.compare("llama4_scout")) {
     model_config = llama4_scout;
   }else if (!model_name.compare("llama4_maverick")) {
@@ -221,6 +226,50 @@ int main(int argc, char *argv[]) {
     assertTrue(model_name == "deepseekV3" && layers > 0 && layers <= 128,
                "Recorded route topology expects the DeepSeek timing proxy");
     model_config.num_layers = model_config.first_k_dense + layers;
+  }
+
+  if (model_name == "glm5_2") {
+    const auto optimization = config["system"]["optimization"];
+    assertTrue(num_node == 1 && num_device == 1 && processor_type == "GPU" &&
+                   optimization["decode_mode"].as<bool>() &&
+                   !optimization["prefill_mode"].as<bool>() &&
+                   optimization["use_absorb"].as<bool>() &&
+                   optimization["use_flash_mla"].as<bool>() &&
+                   optimization["compressed_kv"].as<bool>() &&
+                   !optimization["parallel_execution"].as<bool>() &&
+                   !optimization["use_ramulator"].as<bool>() &&
+                   input_len + output_len <= 2048,
+               "GLM support requires single-GPU, short-context absorbed MLA decode");
+  }
+
+  if (auto profile = config["model"]["packed_expert_profile"]) {
+    assertTrue(model_name == "glm5_2" && system_config.offchip_ramulator_channels,
+               "Packed expert profiles require GLM-5.2 with off-chip Ramulator");
+    const auto path = std::filesystem::path(argc > 1 ? argv[1] : "config.yaml")
+                      .parent_path() / profile.as<std::string>();
+    std::ifstream file(path);
+    std::string line;
+    std::getline(file, line);
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    assertTrue(line == "layer,routed_bytes,shared_bytes",
+               "Invalid packed expert profile header");
+    for (int layer = model_config.first_k_dense; layer < model_config.num_layers; ++layer) {
+      assertTrue(static_cast<bool>(std::getline(file, line)), "Incomplete packed profile");
+      std::replace(line.begin(), line.end(), ',', ' ');
+      std::istringstream row(line);
+      long long routed, shared;
+      int index;
+      std::string extra;
+      assertTrue(static_cast<bool>(row >> index >> routed >> shared) && !(row >> extra) &&
+                     index == layer && routed > 0 && shared > 0 &&
+                     routed <= 72LL * 1024 * 1024 && shared <= 72LL * 1024 * 1024,
+                 "Invalid packed expert profile row");
+      model_config.packed_routed_bytes.push_back(routed);
+      model_config.packed_shared_bytes.push_back(shared);
+      model_config.packed_staging_bytes = std::max(
+          model_config.packed_staging_bytes, std::max(routed, shared));
+    }
+    assertTrue(!std::getline(file, line), "Unexpected extra packed profile row");
   }
 
   model_config.e_tp_dg =

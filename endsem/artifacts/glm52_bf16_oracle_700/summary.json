@@ -1,0 +1,33 @@
+{
+  "on_demand": {
+    "transferred_bytes": 611529523200,
+    "latency_ms": 1617.572877952043,
+    "exposed_stall_ms": 1594.0264275,
+    "traffic_gb_per_token": 50.9607936,
+    "completed_dram_reads": 4665600,
+    "useful_prefetches": 0,
+    "unused_prefetches": 0,
+    "shared_prefetches": 0
+  },
+  "spatial": {
+    "transferred_bytes": 611529523200,
+    "latency_ms": 1595.6322047434746,
+    "exposed_stall_ms": 1572.0823408333333,
+    "traffic_gb_per_token": 50.9607936,
+    "completed_dram_reads": 4665600,
+    "useful_prefetches": 1714,
+    "unused_prefetches": 0,
+    "shared_prefetches": 900
+  },
+  "trace": {
+    "offset": 700,
+    "steps": 12,
+    "moe_layers": 75,
+    "sample_ratio": 2048,
+    "chunk_bytes": 0,
+    "shared_prefetch": true,
+    "oracle": true,
+    "logical_expert_bytes": 75497472,
+    "model": "GLM-5.2 publisher geometry, BF16"
+  }
+}

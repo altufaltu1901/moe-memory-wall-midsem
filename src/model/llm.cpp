@@ -19,7 +19,7 @@ LLM::LLM(const ModelConfig& model_config, Cluster::Ptr cluster,
                                            model_config, device_list, device);
   add_module(embedding_layer);
 
-  if ((model_config.model_name != "deepseekV3")) {
+  if (!model_config.hasDensePrefix()) {
     for (int layer = 0; layer < model_config.num_layers; layer++) {
       if ((model_config.expert_freq != 0) && (layer % model_config.expert_freq == 0)) {
         // MoE decoder;
@@ -39,7 +39,7 @@ LLM::LLM(const ModelConfig& model_config, Cluster::Ptr cluster,
         add_module(decoder);
       }
     }
-  } else if ((model_config.model_name == "deepseekV3")) {
+  } else if (model_config.hasDensePrefix()) {
     for (int layer = 0; layer < model_config.first_k_dense; layer++) {
       auto decoder =
           Decoder::Create(module_map_name, "decoder_" + std::to_string(layer),
@@ -70,7 +70,7 @@ Tensor::Ptr LLM::forward(const Tensor::Ptr input,
   Module::Ptr embedding = get_module("Embedding_layer");
   temp = (*embedding)(input, sequences_metadata);
 
-  if ((model_config.model_name != "deepseekV3")){
+  if (!model_config.hasDensePrefix()) {
     for (int layer = 0; layer < model_config.num_layers; layer++) {
       if ((model_config.expert_freq != 0) && (layer % model_config.expert_freq == 0)){
         decoder = get_module("MoE_decoder_" + std::to_string(layer));
@@ -79,7 +79,7 @@ Tensor::Ptr LLM::forward(const Tensor::Ptr input,
       }
       out = (*decoder)(temp, sequences_metadata);
     }
-  } else if ((model_config.model_name == "deepseekV3")) {
+  } else if (model_config.hasDensePrefix()) {
     for (int layer = 0; layer < model_config.first_k_dense; layer++) {
       decoder = get_module("decoder_" + std::to_string(layer));
       out = (*decoder)(temp, sequences_metadata);

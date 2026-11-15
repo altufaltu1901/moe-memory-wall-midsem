@@ -195,10 +195,10 @@ void BatchedSequence::update_expert(int num_expert, int top_k,
   num_token_in_expert.clear();
   int size = num_token_in_expert.size();
   const auto& model = scheduler->model_config;
-  int num_layer = model.model_name == "deepseekV3"
+  int num_layer = model.hasDensePrefix()
                       ? model.num_layers - model.first_k_dense
                       : model.num_layers / model.expert_freq;
-  const int actual_layer = model.model_name == "deepseekV3"
+  const int actual_layer = model.hasDensePrefix()
                                ? model.first_k_dense + cur_layer
                                : cur_layer * model.expert_freq;
   std::ofstream* trace = routeTrace();

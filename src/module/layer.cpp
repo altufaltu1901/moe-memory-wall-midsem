@@ -1,4 +1,7 @@
 #include "module/layer.h"
+
+#include <algorithm>
+#include <cmath>
 #include "module/base.h"
 #include "model/util.h"
 #include "module/communication.h"
@@ -53,6 +56,60 @@ Tensor::Ptr Attention::forward(const Tensor::Ptr input,
 }
 
 // Multi Latent Attention //
+// Analytical DSA indexer for short-context decode. The 2048-key cap
+// covers the entire context on supported runs, so MLA sees the same key set.
+class GlmDsaIndexCost final : public Module {
+ public:
+  GlmDsaIndexCost(std::string prefix, const ModelConfig& cfg,
+                  const std::vector<int>& devices, Device::Ptr gpu)
+      : Module(prefix, "glm_dsa_index", gpu, devices, true),
+        precision_(cfg.precision_byte),
+        projection_weights_(cfg.q_lora_rank * heads_ * dimension_ + cfg.hidden_dim * dimension_),
+        mixing_weights_(cfg.hidden_dim * heads_) {
+    add_tensor(Tensor::Create("index_projection_weights", {projection_weights_},
+                              "weight", gpu, precision_));
+    add_tensor(Tensor::Create("index_mixing_weights", {mixing_weights_}, "weight", gpu, 4));
+    add_tensor(Tensor::Create("index_key_cache", {cfg.input_len + cfg.output_len, dimension_},
+                              "cache", gpu, precision_));
+  }
+
+ private:
+  Tensor::Ptr forward(const Tensor::Ptr input, BatchedSequence::Ptr metadata) override {
+    if (!device->perform_execution) return input;
+    ExecStatus status{};
+    status.processor_type = ProcessorType::GPU;
+    const double weights = projection_weights_ * precision_ + mixing_weights_ * 4.0;
+    double projection_ops = 0, score_ops = 0, score_bytes = 0;
+    for (const auto& seq : metadata->get_gen()) {
+      const int fresh = seq->num_process_token;
+      if (!fresh) continue;
+      const int keys = seq->current_len + fresh;
+      projection_ops += 2.0 * fresh * (projection_weights_ + mixing_weights_);
+      score_ops += fresh * keys * (2.0 * heads_ * dimension_ + 3.0 * heads_ +
+                                  std::ceil(std::log2(std::max(2, keys))));
+      score_bytes += (keys + fresh) * dimension_ * precision_ + 4.0 * fresh * keys;
+    }
+    if (projection_ops > 0) {
+      const auto peak = device->config.compute_peak_flops;
+      const auto bandwidth = device->config.memory_bandwidth;
+      status.flops = projection_ops + score_ops;
+      status.memory_size = weights + score_bytes;
+      status.compute_duration = status.flops / peak * 1e9;
+      status.memory_duration = status.memory_size / bandwidth * 1e9;
+      status.total_duration = (std::max(projection_ops / peak, weights / bandwidth) +
+                               std::max(score_ops / peak, score_bytes / bandwidth)) * 1e9;
+    }
+    device->setExecStatus(status);
+    return input;
+  }
+
+  static constexpr int heads_ = 32;
+  static constexpr int dimension_ = 128;
+  int precision_;
+  int projection_weights_;
+  int mixing_weights_;
+};
+
 MultiLatentAttention::MultiLatentAttention(std::string& prefix, std::string& name,
                                           const ModelConfig& model_config, Scheduler::Ptr scheduler,
                                           std::vector<int>& device_list, Device::Ptr device)
@@ -91,6 +148,16 @@ MultiLatentAttention::MultiLatentAttention(std::string& prefix, std::string& nam
     device_list, device);
   add_module(latent_kv_layer_norm);
 
+  if (model_config.model_name == "glm5_2") {
+    const auto layer = std::stoi(prefix.substr(prefix.find_last_of('_') + 1));
+    // Published IndexShare pattern: layers 0, 1, 2 and then 6, 10, ...
+    if (layer < 3 || layer % 4 == 2) {
+      add_module(std::make_shared<GlmDsaIndexCost>(module_map_name, model_config,
+                                                 device_list, device));
+    }
+  }
+  const int value_dim = model_config.value_head_dim;
+
   // for absorb MLA
   if(model_config.use_absorb){ 
     auto attn_q_up_proj = BatchedColumnParallelLinear::Create(
@@ -123,12 +190,12 @@ MultiLatentAttention::MultiLatentAttention(std::string& prefix, std::string& nam
 
     auto attn_v_up_proj = BatchedColumnParallelLinear::Create(
         module_map_name, "attn_v_up_proj", model_config.kv_lora_rank,
-        model_config.num_heads * model_config.head_dim, model_config.num_heads,
-        false, false, device_list, device);
+        model_config.num_heads * (value_dim > 0 ? value_dim : model_config.head_dim),
+        model_config.num_heads, false, false, device_list, device);
     add_module(attn_v_up_proj);
 
     auto attn_o_up_proj = BatchedRowParallelLinear::Create(
-        module_map_name, "attn_o_proj", model_config.num_heads * model_config.qk_nope_head_dim, 
+        module_map_name, "attn_o_proj", model_config.num_heads * (value_dim > 0 ? value_dim : model_config.qk_nope_head_dim),
         model_config.hidden_dim, model_config.num_heads, false, true, device_list, device);
     add_module(attn_o_up_proj);
 
@@ -226,6 +293,9 @@ Tensor::Ptr MultiLatentAttention::forward(const Tensor::Ptr input,
     TensorVec q_rope_out = (*q_rope)(attn_qr_proj_out, sequences_metadata);
 
     TensorVec query_x_W_UK = (*attn_tr_k_up_proj)(query, sequences_metadata);
+
+    auto index = module_list.find("glm_dsa_index");
+    if (index != module_list.end()) (*index->second)(input, sequences_metadata);
 
     TensorVec attn_mla_out = (*attn_mla_absorbed)(query_x_W_UK, sequences_metadata);
 
