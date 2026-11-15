@@ -125,3 +125,21 @@ prefetcher's reserved slot. Use --offset 760 for the separate trace window.
 
     python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --chunk-mib 1
     python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --chunk-mib 1 --offset 760
+
+### Overlap the known shared expert with routed computation
+
+The combined policy starts a missing shared-expert transfer after routed
+weights arrive. The shared expert always runs on this model. The routed
+prediction still stages at most 1 MiB after the shared load stage.
+
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE NEW_RESULTS_DIR --chunk-mib 1 --shared
+    python endsem/run_glm_coupled.py PATH_TO_RUN_EXECUTABLE ANOTHER_RESULTS_DIR --chunk-mib 1 --shared --offset 760
+    python endsem/compare_glm_schedules.py
+
+The comparison script checks the saved logs, identical routes, repeated
+baseline metrics and completion of every shared prefetch. It regenerates
+[the comparison CSV](artifacts/glm_schedule_comparison.csv). The two windows
+come from one GLM trajectory and use DeepSeek-shaped GPU timing and sampled
+DDR4 service. Energy differences use assumed waiting power and transfer
+cost. See the [research notes](RESEARCH_NOTES.md) and
+[worked report example](EXAMPLE_REPORT.md).

@@ -99,6 +99,9 @@ int main(int argc, char *argv[]) {
     system_config.offchip_ramulator_channels = offchip["ramulator_channels"].as<int>(0);
     system_config.offchip_sample_ratio = offchip["ramulator_sample_ratio"].as<int>(1024);
     system_config.expert_prefetch = offchip["prefetch"].as<bool>(false);
+    system_config.shared_expert_prefetch = offchip["prefetch_shared"].as<bool>(false);
+    assertTrue(!system_config.shared_expert_prefetch || system_config.expert_prefetch,
+               "Shared expert prefetch requires expert prefetch mode");
     system_config.expert_prefetch_chunk_bytes =
         offchip["prefetch_chunk_bytes"].as<long long>(0);
     assertTrue(system_config.expert_prefetch_chunk_bytes >= 0 &&

@@ -45,6 +45,12 @@ Tensor::Ptr ExpertLoad::forward(const Tensor::Ptr input,
     duration += fetched.load_duration_ns;
   }
 
+  if (!shared_ && device->config.shared_expert_prefetch) {
+    // The coupled DeepSeek proxy has one shared expert with the same weight
+    // size as a routed expert. It runs once per active layer.
+    auto shared_key = layer_key_.substr(0, layer_key_.size() - 6) + "shared:0";
+    device->prefetchSharedExpert(shared_key, expert_bytes_, duration);
+  }
   if (shared_ && device->config.expert_prefetch) {
     std::string routed_key = layer_key_.substr(0, layer_key_.size() - 6) + "routed";
     device->prefetchExpert(routed_key, expert_bytes_, duration);

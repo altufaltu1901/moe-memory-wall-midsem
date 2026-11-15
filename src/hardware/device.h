@@ -105,6 +105,7 @@ class Device : public std::enable_shared_from_this<Device> {
   void setExecStatus(ExecStatus& exec_status_);
   ExpertFetch fetchExpert(const std::string& key, long long bytes, time_ns queued_ns = 0);
   void routeExperts(const std::string& layer, const std::vector<int>& routed);
+  void prefetchSharedExpert(const std::string& key, long long bytes, time_ns queued_ns);
   void prefetchExpert(const std::string& layer, long long bytes, time_ns queued_ns);
 
   ExecStatus getExecStatus();

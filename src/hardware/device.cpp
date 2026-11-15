@@ -305,6 +305,17 @@ static const std::vector<std::vector<int>>& prefetchPlan() {
   return plan;
 }
 
+void Device::prefetchSharedExpert(const std::string& key, long long bytes,
+                                  time_ns queued_ns) {
+  if (expert_index_.count(key) || bytes > config.expert_cache_capacity_bytes) return;
+  const auto now = get_time() + queued_ns;
+  if (pending_expert_ && pending_expert_->ready_ns > now) return;
+  const auto service = expertTransfer(key, bytes);
+  pending_expert_ = PendingExpert{key, now + service, bytes};
+  std::cout << "EXPERT_PREFETCH," << key << ',' << bytes << ',' << now
+            << ',' << service << '\n';
+}
+
 void Device::prefetchExpert(const std::string& layer, long long bytes, time_ns queued_ns) {
   const auto next = next_layer_.find(layer);
   const auto& plan = prefetchPlan();
