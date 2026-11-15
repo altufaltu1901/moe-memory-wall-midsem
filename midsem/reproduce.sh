@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "${1:-}" in
+  "") ;;
+  --build-only) [ "$#" -eq 1 ] || { echo "Usage: $0 [--build-only]" >&2; exit 2; } ;;
+  *) echo "Usage: $0 [--build-only]" >&2; exit 2 ;;
+esac
+
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ramulator="$repo/src/dram/ramulator2"
 if [ ! -f "$ramulator/CMakeLists.txt" ]; then
@@ -34,6 +40,9 @@ for dependency in yaml-cpp spdlog argparse; do
 done
 cmake -S "$repo" -B "$repo/build" "${cmake_args[@]}"
 cmake --build "$repo/build" --parallel 4
+if [[ "${1:-}" == "--build-only" ]]; then
+  exit 0
+fi
 
 for entry in \
   "offchip:config_offchip.yaml" \

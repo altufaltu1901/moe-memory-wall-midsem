@@ -36,7 +36,7 @@ def main():
     base = manifest["repository_commit"]
     changed = subprocess.check_output(
         ["git", "diff", "--name-only", "--diff-filter=AM", base, "--",
-         "CMakeLists.txt", "eval", "src", "README.md"], cwd=ROOT, text=True
+         "CMakeLists.txt", "eval", "src", "README.md", "midsem/reproduce.sh"], cwd=ROOT, text=True
     ).splitlines()
     for name in changed:
         path = ROOT / name
